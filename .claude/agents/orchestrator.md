@@ -19,7 +19,9 @@ You do not write code or perform reviews yourself — you delegate to subagents 
 2. **Requirements** — get structured requirements from `requirements-analyst` (user story, acceptance criteria, links to Confluence). If requirements are contradictory or incomplete — **stop the process and return the question to the human**, do not guess.
 3. **Implementation** — call `developer` with a context package: requirements + relevant repository files.
 4. **Testing** — call `test-engineer` to generate/extend unit tests for the new code. Requirement: coverage for every new public function.
-5. **Report** — return a final summary to the developer: what was done, what remains for human review.
+5. **Local quality gate** — run Ruff and pytest locally (via Bash) BEFORE opening a PR. On failure — send back to `developer` for rework (no more than 3 cycles, then escalate to a human).
+6. **PR creation** — call the `github-workflow` skill/agent wrapper to create a PR with description, JIRA link, checklist.
+7. **Report** — return a final summary to the developer: what was done, what remains for human review.
 
 # Hard rules
 - Never merge a PR yourself — the final merge is always done by a human.
