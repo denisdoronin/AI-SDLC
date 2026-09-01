@@ -207,3 +207,78 @@ and failing test files.
 becomes dead code that could mask an accidentally-empty suite (e.g. a collection-path
 misconfiguration would pass silently). It should be deleted in the same ticket that
 adds the first test, pairing naturally with the deferred 90% coverage gate.
+
+---
+
+## 2026-09-01 — Local quality gate + PR creation (`github-workflow` skill)
+
+**Local gate (orchestrator-run, BEFORE opening the PR):** ruff 0, mypy 0, pytest 5.
+Exit-code matrix re-verified. PASSED on the first attempt; zero rework cycles used.
+
+**Commit:** `b103a03` `chore(ci): add GitHub Actions CI pipeline for PRs to main`
+on branch `chore/MDF-9-ci-pipeline-setup`. Conventional Commits format per the
+`github-workflow` skill. Three files: `.github/workflows/ci.yml` (new),
+`pyproject.toml` (+1 line), `docs/run-log/MDF-9.md` (new).
+
+`.claude/settings.local.json` was **deliberately excluded** from the commit — it is the
+permission system recording an MCP tool approval during the requirements stage,
+unrelated to MDF-9. Left modified in the working tree, as with MDF-8.
+
+**PR:** https://github.com/denisdoronin/AI-SDLC/pull/2 — created with the skill's
+required template (JIRA link, What was done, How it was tested, Checklist), plus an
+explicit reviewer note about the out-of-scope `concurrency` block.
+Diff size ~268 insertions, well under the skill's 400-line guidance.
+
+## 2026-09-01 — Live CI verification (the pipeline validated itself)
+
+The new workflow ran against its own PR — the strongest available proof of AC #1 and #2.
+
+Run `33518402855` — **completed / success** in 33s. Evidence from the runner log:
+
+    Upgrade pip                      python -m pip install --upgrade pip
+    Install project and dev deps     pip install -e . --group dev          (succeeded)
+    Lint with ruff                   All checks passed!
+    Type-check with mypy             Success: no issues found in 2 source files
+    Run tests with pytest            collected 0 items
+                                     ##[notice]pytest collected no tests (exit code 5);
+                                               treating as pass.
+
+This confirms in the real environment, not just locally:
+- **AC #1 satisfied** — the workflow triggered automatically on a PR targeting `main`.
+- The PEP 735 `--group dev` install path works on a GitHub runner once pip is upgraded,
+  validating the developer's finding that the upgrade step is load-bearing.
+- The exit-5 tolerance branch executed exactly as designed and emitted its notice.
+
+Note: the pre-existing `Claude Code Review` workflow also triggered on this PR
+(run `33518402665`), independently of MDF-9.
+
+---
+
+## Final state
+
+**Pipeline:** Requirements = ok (after one human clarification, Option B) ->
+Implementation = done -> Tests = skipped (deliberate, pre-authorised, no new code) ->
+Local gate = passed (0 rework cycles) -> PR opened -> CI green -> **awaiting human review**.
+
+**Files changed (MDF-9 scope):** `.github/workflows/ci.yml`, `pyproject.toml`,
+`docs/run-log/MDF-9.md`.
+**Excluded from PR:** `.claude/settings.local.json` (permission-system artifact).
+**JIRA:** untouched throughout — read-only. No transitions, no comments, no AC edits.
+
+**NOT MERGED.** Final merge is a human decision, per hard rule.
+
+**Open items for the human reviewer:**
+1. **Decide on the `concurrency` block** — added beyond agreed scope by the developer.
+   Harmless (cancels superseded runs only), but flagged for an explicit keep/drop call.
+2. **Schedule the tolerance removal.** The exit-5 branch must be deleted by the ticket
+   that adds the first real test, or it will silently mask an empty/misconfigured suite.
+   Pair this with the deferred 90% coverage gate and `pytest-cov`.
+3. **MDF-8 is still "To Do"** in JIRA despite its config being committed and in use.
+   JIRA hygiene, not touched by this pipeline.
+4. **Reconcile the style-guide contradiction:** the `python-style-guide` skill says
+   line-length 100 + `ANN` rule; `pyproject.toml` says 88 + no `ANN`. The skill names
+   pyproject as the single source of truth, so pyproject wins, but the skill text
+   should be corrected in its own ticket.
+5. **Dependency floors remain open-ended** (`pytest>=8.0` resolved to 9.1.1 locally).
+   Carried over from MDF-8; CI installs unpinned and could drift. `uv.lock` is still
+   untracked.
