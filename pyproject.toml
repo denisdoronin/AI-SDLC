@@ -10,5 +10,25 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/md_formatter"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "N"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+files = ["src", "tests"]
