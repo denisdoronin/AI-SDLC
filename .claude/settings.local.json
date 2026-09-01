@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "mcp__claude_ai_Atlassian_Rovo__getAccessibleAtlassianResources",
-      "mcp__claude_ai_Atlassian_Rovo__getJiraIssue"
+      "mcp__claude_ai_Atlassian_Rovo__getJiraIssue",
+      "mcp__atlassian__getAccessibleAtlassianResources",
+      "mcp__atlassian__getJiraIssue"
     ]
   },
   "enabledMcpjsonServers": [
