@@ -6,7 +6,17 @@
       "mcp__atlassian__getAccessibleAtlassianResources",
       "mcp__atlassian__getJiraIssue",
       "Bash(./.venv/Scripts/ruff.exe check *)",
-      "Bash(echo \"EXIT=$?\")"
+      "Bash(echo \"EXIT=$?\")",
+      "mcp__atlassian__getPagesInConfluenceSpace",
+      "Bash(gh run *)",
+      "Bash(gh pr *)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(uv run *)",
+      "Bash(git checkout *)",
+      "Bash(python -m ruff check .)",
+      "Bash(git branch *)",
+      "Bash(git push *)"
     ]
   },
   "enabledMcpjsonServers": [
