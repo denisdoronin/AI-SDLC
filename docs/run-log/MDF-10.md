@@ -132,3 +132,82 @@ locally and CI installs via pip, ignoring the lock. **Recommended as a separate 
 uncommitted — they are local agent/permission config, unrelated to MDF-10.
 
 ---
+
+## 2026-09-03 — Orchestrator — PR creation (`github-workflow` skill)
+
+Branch naming correction: the branch was first created as `feat/MDF-10-...`, but the
+`github-workflow` skill mandates `<type>/<KEY>-<slug>` with type in
+`feature|fix|refactor|chore`. Renamed to **`feature/MDF-10-bullet-list-formatter`** and the
+stale remote branch deleted, before any PR existed.
+
+- Commit `3b33eaa` — `feat(lists): add format_bullet_list for MDF-10` (Conventional Commits).
+- **PR #3** opened against `main`: https://github.com/denisdoronin/AI-SDLC/pull/3
+- Body follows the skill's required template (JIRA link, What was done, How it was tested,
+  Checklist), plus explicit sections on the Confluence-vs-AC conflict and scope decisions.
+- Diff = 264 insertions across 3 files, well under the skill's 400-line guidance.
+- Not merged, not approved by any agent — per skill rules, humans own approval and merge.
+
+---
+
+## 2026-09-03 — `code-reviewer` (first/AI review, before human)
+
+**Input**
+PR #3 + the verbatim MDF-10 ACs from `requirements-analyst`, the Confluence constraints, and
+the four deliberate decisions (AC-over-Confluence-snippet, scope discipline, reverted
+`uv.lock`, substituted purity tests) so they would be evaluated rather than re-flagged.
+
+**Output — verdict: APPROVE (recommendation only). 0 BLOCKING / 4 non-blocking / 3 nits.**
+
+Reviewer independently re-ran all gates rather than trusting the PR description, and
+confirmed the implementation honours the **ticket** AC (empty lines survive as `""`,
+1:1 length) rather than the contradictory Confluence snippet.
+
+Non-blocking findings (all follow-up material, none returned to `developer`):
+
+1. Embedded newlines inside a line (`"alpha\nbeta"`) are undefined and untested; the existing
+   `"\n wrapped \n"` case only covers leading/trailing newlines and gives false confidence.
+2. AC #3's "whitespace-heavy strings" is only tested with ASCII whitespace. `str.strip()`
+   covers Unicode (NBSP, `\u3000`) but zero-width space `\u200b` is not whitespace and yields
+   a visually blank bullet — sensible, but currently incidental rather than specified.
+3. The docstring doctest is not executed by CI (no `--doctest-modules`), so it can rot.
+4. CI's pytest exit-code-5 tolerance is now live risk rather than dead code, since real tests
+   exist as of this PR.
+
+Nits: `uv.lock` staleness would hard-fail a future `--frozen` run; test path is
+`tests/test_lists.py` rather than a strictly mirrored `tests/md_formatter/test_lists.py`;
+`format_bullet_list("abc")` returns `['- a','- b','- c']` because `str` is iterable —
+reviewer explicitly recommended **against** adding a runtime guard.
+
+Review posted as PR comment: https://github.com/denisdoronin/AI-SDLC/pull/3#issuecomment-5528994782
+No approval submitted (`reviewDecision: ""`), nothing merged.
+
+---
+
+## 2026-09-03 — Orchestrator — CI verification
+
+| Check | Result |
+|---|---|
+| `Lint, type-check and test (Python 3.11)` | **pass** (20s) |
+| `claude-review` | **pass** (51s) |
+
+PR state: `OPEN`, `mergeable: MERGEABLE`, `reviewDecision: ""` (no approval yet — correct).
+
+---
+
+## 2026-09-03 — Final state
+
+Pipeline completed with **zero rework cycles** (limit 3) and **zero blocking review findings**.
+Awaiting human review and merge. Working tree carries only pre-existing, deliberately
+uncommitted local `.claude/` agent and permission config.
+
+**Open items escalated to the human (no action taken by agents):**
+
+1. Confluence *Development Guidelines* §1 "GOOD example" is factually wrong — it filters empty
+   lines, contradicting MDF-10's AC and PRD FR-1.1. Needs a docs fix. No Confluence page was
+   modified.
+2. Follow-up chore: refresh the stale `uv.lock` (+63 lines, pytest chain, no new deps).
+3. Follow-up chore: remove CI's pytest exit-code-5 tolerance and decide on the 90% coverage
+   gate + `pytest-cov` that MDF-9 deferred to "the first test ticket". MDF-10's written scope
+   covers neither, so both were deliberately left alone.
+4. Reviewer findings #1/#2 (embedded-newline and Unicode-whitespace contracts) — human decides
+   amend-this-PR vs. separate ticket.
