@@ -16,7 +16,9 @@
       "Bash(git checkout *)",
       "Bash(python -m ruff check .)",
       "Bash(git branch *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git fetch *)",
+      "Bash(git -C d:/Git/AI-SDLC worktree list)"
     ]
   },
   "enabledMcpjsonServers": [

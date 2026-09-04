@@ -2,6 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(*)",
+      "Bash(git *)",
+      "Bash(python *)",
+      "Bash(pytest *)",
+      "Bash(cd *)",
+      "Bash(cp *)",
+      "Bash(mkdir *)",
+      "Bash(uv *)",
+      "Bash(echo *)",
       "mcp__atlassian__*",
       "mcp__claude_ai_Atlassian_Rovo__*"
     ]
