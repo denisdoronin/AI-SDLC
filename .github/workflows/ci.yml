@@ -49,4 +49,4 @@ jobs:
         run: pytest
 
       - name: Run doctests
-        run: pytest -o addopts="" --doctest-modules src
+        run: pytest --no-cov --doctest-modules src
