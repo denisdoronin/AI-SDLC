@@ -39,20 +39,14 @@ jobs:
       - name: Lint with ruff
         run: ruff check .
 
+      - name: Check formatting with ruff
+        run: ruff format --check .
+
       - name: Type-check with mypy
         run: mypy
 
-      # pytest exit code 5 means "no tests collected". The suite is currently
-      # empty, so tolerate 5 only; every other non-zero code must fail the job.
-      - name: Run tests with pytest
-        shell: bash
-        run: |
-          set +e
-          pytest
-          status=$?
-          set -e
-          if [ "$status" -eq 5 ]; then
-            echo "::notice::pytest collected no tests (exit code 5); treating as pass."
-            exit 0
-          fi
-          exit "$status"
+      - name: Run tests with coverage
+        run: pytest
+
+      - name: Run doctests
+        run: pytest -o addopts="" --doctest-modules src
