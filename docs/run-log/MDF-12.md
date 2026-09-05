@@ -205,8 +205,8 @@ already-reviewed `tests/test_lists.py`. Mandatory cases: the tab delimiter (not 
 a CRLF regression test that no stray `\r` survives in the last cell of a row, blank-line dropping
 in leading/trailing/interior/consecutive positions, delimiter-only lines, ragged-row
 non-padding, purity, and unicode. Explicit instruction not to reintroduce the tautological-test
-pattern the MDF-11 review round had to remove, and not to assert that an invalid delimiter raises
-(it must not).
+pattern the MDF-11 review round had to remove, and not to assert that an invalid delimiter raises.
+(That last instruction was wrong -- see the review section below.)
 
 **Output**
 
@@ -250,3 +250,104 @@ own (the suite could encode the wrong contract):
 | `"привет, мир"` | `[['привет','мир']]` | unicode, stripped |
 
 All ten match the AC and the human's decisions.
+
+---
+
+## 2026-09-05 — PR creation
+
+- Commit `16ae9f5` — `feat(tables): add delimited text parser` (Conventional Commits).
+- Commit `1f3dd04` — `docs(run-log): ...`, pushed to `feature/MDF-12-delimited-text-parser`.
+- **PR #6** opened against `main`: https://github.com/denisdoronin/AI-SDLC/pull/6
+- Committed diff: 447 insertions / 0 deletions across 3 files, of which 252 lines are this
+  process log — the product diff is 195 lines. Under the 400-line guidance either way.
+- The pre-existing working-tree edits to `.claude/settings.json` and `.claude/settings.local.json`
+  were deliberately **kept out** of the branch, per the MDF-16 precedent. Verified with
+  `git diff main HEAD --stat`, which shows only the three intended files.
+- Not merged, not approved.
+
+## 2026-09-05 — JIRA comment
+
+Comment `10001` added to MDF-12 with the PR link, gate results, the confirmed row semantics and
+the explicit out-of-scope list: https://dedoronin-1786901899646.atlassian.net/browse/MDF-12?focusedCommentId=10001
+Comment only — no status transition, no field/AC edits, no assignee change.
+
+---
+
+## 2026-09-05 — `code-reviewer` (first/AI review, before human)
+
+**Input**
+PR #6 + the verbatim MDF-12 AC, FR-2.1, FR-2.2's downstream role, and the six human-confirmed
+decisions marked as settled (implementation correctness in scope; re-arguing the decisions out of
+scope). Asked to probe adversarially rather than inspect — specifically regex-metacharacter
+delimiters, multi-character and empty delimiters, trailing delimiters, and test quality.
+
+**Output — verdict: REQUEST_CHANGES. 2 BLOCKING / 7 suggestions.**
+
+All five gates independently re-run by the reviewer and green. Decisions 1-5 verified correct
+live. No security surface. Large input linear (18 MB / 200k rows in 2.2 s). The MDF-11
+tautological pattern was confirmed **not** reintroduced.
+
+- **BLOCKING 1 — `delimiter=""` raises `ValueError`, contradicting the stated "must not raise".**
+  Behaviour is input-dependent: harmless on blank input, fatal on any content line. Three
+  artifacts asserted the opposite and were factually wrong (a test docstring, the PR body, and
+  this run log).
+- **BLOCKING 2 — AC 1 was not pinned by the suite.** Proved by *mutation*, not inspection: a
+  mutant collapsing internal cell whitespace, and a mutant dropping trailing empty cells, each
+  passed all 24 tests. The shipped code was correct; the suite simply did not defend the primary
+  AC. `tests/test_lists.py` already had this exact guard for both sibling functions.
+
+**Orchestrator decision on BLOCKING 1: fix the claims, not the code.**
+Root cause was mine, not the developer's — my instruction "an empty delimiter must NOT raise"
+over-specified my own non-blocking deferral. The developer added no validation, exactly as asked;
+the `ValueError` is native `str.split("")` behaviour. Since AC 2 scopes the function to
+*single-character* delimiters, `""` is outside the contract entirely, so adding validation would
+be scope creep and suppressing the error would invent unrequested behaviour. Not re-escalated to
+the human: no AC is in question, and the fix is to stop making a false claim. Flagged in the final
+report so the owner can overrule.
+
+---
+
+## 2026-09-05 — Rework (iteration 1 of max 3)
+
+`developer` — `src/md_formatter/tables.py`, **docstrings only, zero logic lines changed**:
+honest `delimiter` contract (single-character expected; multi-character not rejected, literal
+`str.split` semantics) plus a `Raises:` section; the partial `\n`/`\r\n`/`\r` row-separator
+enumeration replaced with a non-exhaustive "any line boundary `splitlines()` recognises", since a
+partial enumeration is what caused the finding; `r"""` demoted to `"""` on the module docstring
+(no escapes) and kept on the function docstring (required for the doctest `\n`).
+
+Notable catch: the agent narrowed the `Raises:` wording to "when `delimiter` is the empty string
+**and at least one non-blank line is parsed**", because `parse_delimiter_text("", delimiter="")`
+returns `[]` without raising. A flat "empty delimiter raises" would have been a new false claim of
+exactly the kind this pass existed to remove.
+
+`test-engineer` — `tests/test_tables.py`, 24 -> 30 tests: mutation guards for internal-whitespace
+preservation and leading/trailing empty cells; the false "never raises" test corrected to assert
+only multi-character `str.split` semantics; a new test pinning the real `delimiter=""` behaviour
+(raises on content, returns `[]` on blank) documented explicitly as native behaviour and *not* a
+designed feature; the vacuous `f(x) == f(x)` purity test removed (genuine mutate-then-recheck
+purity test already existed); regex-metacharacter delimiters and `" , "` added; and every bogus
+"AC 4"-"AC 10" docstring citation corrected, MDF-12 having only two AC.
+
+The agent verified the mutants are now killed by building scratch copies rather than reasoning:
+mutant 1 killed by `test_internal_whitespace_is_preserved`, mutant 2 by
+`test_trailing_delimiter_produces_trailing_empty_cell`.
+
+**Local quality gate after rework (orchestrator-run, independently verified):**
+
+| Gate | Result |
+|---|---|
+| `ruff check .` | All checks passed |
+| `ruff format --check .` | 26 files already formatted |
+| `mypy` (strict) | Success: no issues found in 6 source files |
+| `pytest` | **88 passed**, 100% coverage (25/25), `tables.py` 7/7 |
+| `pytest --no-cov --doctest-modules src` | 3 passed |
+
+Orchestrator re-checked the review findings directly against a live interpreter:
+`"  a  b  ,c"` -> `[['a  b','c']]` (internal whitespace preserved), `"a,b,"` ->
+`[['a','b','']]`, `",a"` -> `[['','a']]`, `" , "` -> `[['','']]`, `"a.b"` delim `.` ->
+`[['a','b']]`, `"a::b"` delim `::` -> `[['a','b']]`, `("", delim "")` -> `[]`, and
+`("a", delim "")` -> `ValueError: empty separator`. All as documented.
+
+1 of 3 rework iterations used. The false "does not raise" claim was also corrected in this log
+(above) and in the PR body.

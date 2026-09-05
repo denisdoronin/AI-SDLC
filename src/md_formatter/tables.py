@@ -1,4 +1,4 @@
-r"""Table parsing helpers for the Markdown formatter.
+"""Table parsing helpers for the Markdown formatter.
 
 Unlike the helpers in :mod:`md_formatter.lists`, which preserve blank input
 lines as empty strings so that the output length matches the input length, the
@@ -10,11 +10,13 @@ a blank line carries no cells and therefore no table row.
 def parse_delimiter_text(text: str, delimiter: str = ",") -> list[list[str]]:
     r"""Parse delimited text into a 2D matrix of cell values.
 
-    The text is split into lines with :meth:`str.splitlines`, so ``"\n"``,
-    ``"\r\n"`` and ``"\r"`` all act as row separators. Lines that are empty or
-    contain only whitespace are dropped and do not produce a row; an empty
-    string therefore yields an empty matrix. Every line that survives is split
-    on ``delimiter`` and each resulting cell is stripped of leading and
+    The text is split into lines with :meth:`str.splitlines`, so any line
+    boundary that method recognises acts as a row separator: ``"\n"``,
+    ``"\r\n"`` and ``"\r"`` are the common ones, but form feeds, vertical tabs
+    and the Unicode line separators are treated the same way. Lines that are
+    empty or contain only whitespace are dropped and do not produce a row; an
+    empty string therefore yields an empty matrix. Every line that survives is
+    split on ``delimiter`` and each resulting cell is stripped of leading and
     trailing whitespace. A line consisting only of delimiters is not blank and
     yields a row of empty cells.
 
@@ -24,10 +26,17 @@ def parse_delimiter_text(text: str, delimiter: str = ",") -> list[list[str]]:
 
     Args:
         text: Delimited text to parse, with one row per line.
-        delimiter: Single-character separator between cells within a row.
+        delimiter: Separator between cells within a row, expected to be a
+            single character. A multi-character delimiter is not rejected and
+            is matched literally, following :meth:`str.split` semantics.
 
     Returns:
         A new list of rows, each row a list of stripped cell values.
+
+    Raises:
+        ValueError: Propagated from :meth:`str.split` when ``delimiter`` is
+            the empty string and at least one non-blank line is parsed. That
+            input is outside this function's contract.
 
     Examples:
         >>> parse_delimiter_text("a, b\nc ,d")
