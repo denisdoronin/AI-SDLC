@@ -166,9 +166,6 @@ PR state: `OPEN`, `mergeable: MERGEABLE`. Re-verify after the `--no-cov` follow-
 | 3 | `.claude/` AI-SDLC tooling uncommitted (repo hygiene) | **Done** — committed directly to `main`, commit `64256ed`, per explicit human decision |
 | 4 | Tautological test in `tests/test_lists.py` | **Done** — removed on the MDF-11 branch (PR #4), commit `b868bc0` |
 
-Two PRs awaiting human review/merge: **PR #4** (MDF-11, unaffected by this ticket) and
-**PR #5** (MDF-16, this ticket). Neither merged by agents, per process.
-
 **New items surfaced by this round, for the human (none blocking, none actioned):**
 
 1. `README.md` has no testing section and the coverage gate is now a genuine behavior change
@@ -177,3 +174,11 @@ Two PRs awaiting human review/merge: **PR #4** (MDF-11, unaffected by this ticke
    past trivial-size modules.
 3. The doctest CI step itself has no tracking ticket — only surfaced via review discussion,
    never formally requested. Human should decide whether to retro-ticket it.
+
+---
+
+## 2026-09-05 — Merged
+
+**PR #5 merged to `main`** by `denisdororonin` (fast-forward, merge commit `58ca9b0`), on
+explicit human instruction. Branch `chore/MDF-16-coverage-threshold` deleted on merge. MDF-16
+pipeline complete — all 4 MDF-11-review follow-ups are now resolved and on `main`.
