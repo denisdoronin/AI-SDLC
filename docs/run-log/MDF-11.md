@@ -269,3 +269,27 @@ item on the 4 unmerged MDF-10-branch commits).
    tooling should actually live.
 5. Nit: `test_numbered_does_not_mutate_input_list_elements` is tautological (see
    `code-reviewer` finding #1) — cheap to fix, not blocking.
+
+---
+
+## 2026-09-05 — Follow-up: tautological test fix
+
+Per human request to work all 5 open items above, item #5 was fixed directly on this branch:
+`test_numbered_does_not_mutate_input_list_elements` removed from `tests/test_lists.py` —
+redundant with `test_numbered_does_not_mutate_input_list`, which already asserts value-level
+non-mutation; the removed test's `is`-identity check added no signal beyond that, since
+Python strings can't be mutated in place at all. Full gate re-run clean: 58 passed (was 59).
+Commit `b868bc0`, pushed to PR #4.
+
+Items #2 and #3 (coverage gate + doctest enforcement) picked up together as **MDF-16**, an
+already-existing ticket matching #2 verbatim — see `docs/run-log/MDF-16.md`. Item #4
+(`.claude/` tooling repo hygiene) resolved by direct human decision: commit straight to
+`main`, no PR — done in commit `64256ed`. Item #1 (the `""`-vs-drop semantic call) remains
+open for human judgment; no code change was warranted without a decision either way.
+
+---
+
+## 2026-09-05 — Merged
+
+**PR #4 merged to `main`** by `denisdororonin` at 2026-09-05T11:52:40Z, merge commit
+`30b23ff`. MDF-11 pipeline complete.
