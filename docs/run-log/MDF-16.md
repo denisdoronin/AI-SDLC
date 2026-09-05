@@ -85,3 +85,95 @@ independent of merge order.
 - Diff: 264 insertions / 14 deletions across 3 files (`pyproject.toml`, `uv.lock`,
   `ci.yml`) — the bulk is the `uv.lock` dependency-resolution addition.
 - Not merged, not approved — humans own approval and merge.
+
+---
+
+## 2026-09-05 — `code-reviewer` (first/AI review, before human)
+
+**Input**
+PR #5 + the verbatim MDF-16 AC, plus an explicit request to adversarially probe the three
+riskiest decisions rather than just inspect them: the `exit-code-5` tolerance removal,
+whether `--cov=md_formatter` resolves correctly for a src-layout package, and the
+`-o addopts=""` override on the doctest step.
+
+**Output — verdict: APPROVE. 0 BLOCKING / 6 suggestions (2 praise, 4 non-blocking).**
+
+Reviewer independently re-ran every gate on both Windows/uv (local) and cross-checked against
+the actual Linux/pip CI run, then went further than inspection — since the AC is a *negative*
+assertion ("CI fails below 90%"), a green run at 100% proves nothing on its own:
+
+- **Probe 1** — dropped a temporary untested 10-statement module into `src/md_formatter/`:
+  coverage dropped to 41%, gate correctly failed (exit 1). Confirms `--cov=md_formatter`
+  would catch a landed-but-untested module, not just measure what's already exercised.
+- **Probe 2** — ran `pytest -k zzz_nonexistent` (0 tests selected): coverage dropped to 29%,
+  gate correctly failed. This is exactly the scenario the old exit-5 tolerance would have
+  masked — confirming its removal is correct and arguably in-scope for MDF-16 rather than
+  scope creep, since the old tolerance would have **bypassed** this ticket's own AC.
+- Confirmed via the real CI log that `--cov=md_formatter` resolves against the editable
+  `src/` tree (not a stale `site-packages` copy) — misresolution would have shown as a loud
+  0%, not a silent pass.
+
+One fix applied as a result (all others left as non-blocking suggestions for the human):
+
+- `-o addopts=""` on the doctest CI step replaced with `--no-cov` — the former clears *all*
+  addopts, not just the coverage ones, so any future non-coverage option would have silently
+  stopped applying to the doctest run too. Verified locally (1 passed). Commit `11b27c0`.
+
+Non-blocking suggestions left as-is (not applied, no ticket exists for most of them):
+
+1. Consider `testpaths = ["tests", "src"]` + folding `--doctest-modules` into `addopts` to
+   collapse to one pytest invocation; if keeping two steps, add `testpaths = ["tests"]` since
+   bare `pytest` currently only skips `src/` because nothing there is named `test_*.py`.
+2. Consider `[tool.coverage.run] branch = true` — at 7 statements, a 90% *statement*
+   threshold reads softer than it behaves (effectively "100% or fail").
+3. `README.md` has no testing section; a partial local run like
+   `pytest tests/test_lists.py::test_x` now fails on the coverage gate even though all
+   selected tests pass. Flagged as an undocumented behavior change.
+4. Traceability: the doctest CI step has no ticket at all (only `ruff format --check` and the
+   coverage gate map to MDF-16/prior review items) — suggested a retro ticket or a YAML
+   comment. Already explicitly flagged in the PR body, so not blocking.
+
+Also independently verified: `uv.lock` diff is 252 additions / **zero** removals, confined to
+`pytest-cov`, `coverage`, and transitives — a genuine dependency addition, not incidental
+drift (unlike MDF-10/MDF-11's reverted regenerations). No secrets, no third-party coverage
+upload (respects Out-of-Scope), `permissions: contents: read` unchanged, no source/public-API
+change.
+
+Review posted as PR comment: https://github.com/denisdoronin/AI-SDLC/pull/5#issuecomment-5551603005
+
+---
+
+## 2026-09-05 — CI verification
+
+| Check | Result |
+|---|---|
+| `Lint, type-check and test (Python 3.11)` | **pass** (15s) |
+| `claude-review` | **pass** (42s) |
+
+PR state: `OPEN`, `mergeable: MERGEABLE`. Re-verify after the `--no-cov` follow-up commit
+(`11b27c0`) before merge — not yet re-run as of this log entry.
+
+---
+
+## 2026-09-05 — Final state
+
+**All 4 follow-ups from the MDF-11 review round, addressed:**
+
+| # | Follow-up | Resolution |
+|---|---|---|
+| 1 | `pytest-cov` / 90% coverage gate missing | **Done** — this PR (#5), MDF-16 |
+| 2 | Doctests unenforced in CI | **Done** — bundled into this PR, no ticket existed |
+| 3 | `.claude/` AI-SDLC tooling uncommitted (repo hygiene) | **Done** — committed directly to `main`, commit `64256ed`, per explicit human decision |
+| 4 | Tautological test in `tests/test_lists.py` | **Done** — removed on the MDF-11 branch (PR #4), commit `b868bc0` |
+
+Two PRs awaiting human review/merge: **PR #4** (MDF-11, unaffected by this ticket) and
+**PR #5** (MDF-16, this ticket). Neither merged by agents, per process.
+
+**New items surfaced by this round, for the human (none blocking, none actioned):**
+
+1. `README.md` has no testing section and the coverage gate is now a genuine behavior change
+   for anyone running a partial/filtered local `pytest` invocation.
+2. Coverage is statement-only; `branch = true` would tighten the gate as the codebase grows
+   past trivial-size modules.
+3. The doctest CI step itself has no tracking ticket — only surfaced via review discussion,
+   never formally requested. Human should decide whether to retro-ticket it.
