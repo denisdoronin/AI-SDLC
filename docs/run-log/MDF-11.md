@@ -178,3 +178,94 @@ Still recommended as a separate chore ticket.
 **Committed files (deliberately scoped):** `src/md_formatter/lists.py`, `tests/test_lists.py`,
 `docs/run-log/MDF-11.md`. The dirty and untracked `.claude/` files were left uncommitted —
 local agent and permission config, unrelated to MDF-11.
+
+---
+
+## 2026-09-05 — Orchestrator — PR creation (`github-workflow` skill)
+
+- Commit `bf877cd` — `feat(lists): add format_numbered_list for MDF-11` (Conventional Commits),
+  pushed to `feature/MDF-11-numbered-list-formatter`.
+- **PR #4** opened against `main`: https://github.com/denisdoronin/AI-SDLC/pull/4
+- Body follows the skill's required template (JIRA link, What was done, How it was tested,
+  Deliberate decisions worth reviewing, Checklist).
+- Diff = 198 insertions / 3 deletions across the 2 product files (`lists.py`,
+  `test_lists.py`), well under the skill's 400-line guidance.
+- Not merged, not approved by any agent — per skill rules, humans own approval and merge.
+
+---
+
+## 2026-09-05 — `code-reviewer` (first/AI review, before human)
+
+**Input**
+PR #4 + the verbatim MDF-11 ACs, the in/out-of-scope boundary, and the five deliberate
+decisions from `requirements-analyst`/orchestrator (module reuse, `""` mapping for empty
+lines, whitespace-only classification, docstring style, `pytest-cov` deferral) so they would
+be evaluated rather than re-flagged as unexplained choices.
+
+**Output — verdict: APPROVE (recommendation only). 0 BLOCKING / 4 non-blocking suggestions /
+1 item flagged for human attention.**
+
+Reviewer independently re-ran all gates rather than trusting the PR description (all green,
+one minor correction: `ruff format --check` reports 22 files locally, not 21 — accounted for
+by uncommitted local `.claude/` files, irrelevant to the diff) and independently confirmed
+additivity against `origin/main` (only two deleted lines in `tests/test_lists.py`: the module
+docstring and the import line).
+
+Non-blocking suggestions (all follow-up material, none returned to `developer`):
+
+1. `test_numbered_does_not_mutate_input_list_elements` asserts `lines[0] is line`, which can
+   never fail since strings are immutable — a tautological test already covered by the
+   sibling non-mutation test.
+2. Doctests are not enforced anywhere (no `[tool.pytest.ini_options]`, no doctest step in
+   `ci.yml`), so the two docstring examples can rot silently. Pre-existing since MDF-10.
+3. Stylistic divergence between the two sibling formatters (ternary vs. `continue`).
+   Taste-level; the developer's justification is defensible.
+4. Coverage gate still missing (`pytest-cov` absent, DoD S2.2 mandates
+   `--cov-fail-under=90`), and CI doesn't run `ruff format --check`. Both pre-existing and
+   correctly escalated rather than absorbed, but this has now survived two feature PRs and
+   should become its own chore ticket.
+
+Flagged for the human reviewer: mapping empty lines to `""` (preserving 1:1 length) is an
+**interpretation**, not a literal AC — the ACs only require that empty lines not increment
+the counter. Well-justified (matches `format_bullet_list`, PRD FR-1.1) and surfaced
+explicitly rather than guessed, but it's the one semantic call worth a second pair of eyes.
+
+Review posted as PR comment: https://github.com/denisdoronin/AI-SDLC/pull/4#issuecomment-5551473078
+No approval submitted, nothing merged.
+
+---
+
+## 2026-09-05 — Orchestrator — CI verification
+
+| Check | Result |
+|---|---|
+| `Lint, type-check and test (Python 3.11)` | **pass** (15s) |
+| `claude-review` | **pass** (55s) |
+
+PR state: `OPEN`, `mergeable: MERGEABLE`, `reviewDecision: ""` (no approval yet — correct).
+
+---
+
+## 2026-09-05 — Final state
+
+Pipeline completed with **zero rework cycles** (limit 3) and **zero blocking review findings**.
+Awaiting human review and merge. Working tree carries only pre-existing, deliberately
+uncommitted local `.claude/` agent and permission config (see Intake for the repo-hygiene
+item on the 4 unmerged MDF-10-branch commits).
+
+**Open items escalated to the human (no action taken by agents):**
+
+1. **Semantic call for a second look:** empty lines are emitted as `""` (1:1 length
+   preserved) rather than dropped — an interpretation of AC #2, not a literal requirement.
+   See `code-reviewer` output above for the justification.
+2. Follow-up chore (carried over from MDF-10, now affecting two PRs): add `pytest-cov` and
+   wire up the DoD S2.2 90%-coverage gate; also have CI run `ruff format --check`.
+3. Follow-up chore: enforce doctests in CI (`--doctest-modules` or an explicit step) so the
+   `lists.py` docstring examples can't silently rot.
+4. Repo-hygiene item from Intake: 4 commits on the old `feature/MDF-10-bullet-list-formatter`
+   local branch (`c77da3b`, `8b48448`, `02be03f`, `1dbda68`, containing the `code-reviewer`/
+   `release-manager` agent defs and `code-review-checklist` skill) never reached `main` and
+   remain uncommitted in this branch's working tree. Needs a human decision on where that
+   tooling should actually live.
+5. Nit: `test_numbered_does_not_mutate_input_list_elements` is tautological (see
+   `code-reviewer` finding #1) — cheap to fix, not blocking.
