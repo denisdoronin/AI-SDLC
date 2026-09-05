@@ -1,4 +1,4 @@
-"""Bullet list formatting helpers for the Markdown formatter."""
+"""List formatting helpers for the Markdown formatter."""
 
 
 def format_bullet_list(lines: list[str]) -> list[str]:
@@ -23,4 +23,36 @@ def format_bullet_list(lines: list[str]) -> list[str]:
     for line in lines:
         stripped = line.strip()
         formatted.append(f"- {stripped}" if stripped else "")
+    return formatted
+
+
+def format_numbered_list(lines: list[str]) -> list[str]:
+    """Format lines as a Markdown numbered list.
+
+    Each line is stripped of leading and trailing whitespace. Non-empty lines
+    receive an auto-incrementing ``"{n}. "`` prefix starting at ``"1. "``, while
+    lines that are empty or contain only whitespace are mapped to an empty
+    string and leave the counter untouched, so numbering continues unbroken
+    across them. The input list is never mutated and the returned list always
+    has the same length as the input.
+
+    Args:
+        lines: Lines to format as numbered list items.
+
+    Returns:
+        A new list with one formatted entry per input line.
+
+    Examples:
+        >>> format_numbered_list(["  alpha ", "", "beta", "   ", "gamma"])
+        ['1. alpha', '', '2. beta', '', '3. gamma']
+    """
+    formatted: list[str] = []
+    number = 1
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            formatted.append("")
+            continue
+        formatted.append(f"{number}. {stripped}")
+        number += 1
     return formatted
