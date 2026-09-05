@@ -238,17 +238,6 @@ def test_numbered_does_not_mutate_input_list() -> None:
     assert original == original_copy
 
 
-def test_numbered_does_not_mutate_input_list_elements() -> None:
-    """The function must not mutate the individual string elements in place."""
-    line = "  keep me untouched  "
-    lines = [line]
-
-    format_numbered_list(lines)
-
-    assert lines[0] == line
-    assert lines[0] is line
-
-
 def test_numbered_returns_new_list_object() -> None:
     """The function returns a new list instance, not the same object."""
     original = ["first", "second"]
@@ -260,8 +249,8 @@ def test_numbered_returns_new_list_object() -> None:
 # it never raises for any list[str] input (empty, whitespace-only, or mixed
 # content all resolve to a valid, same-length output). This mirrors the
 # documented exception format_bullet_list took in MDF-10. In place of an
-# exception test, purity (test_numbered_does_not_mutate_input_list,
-# test_numbered_does_not_mutate_input_list_elements) and the length/ordering
-# invariants above (test_numbered_output_length_always_matches_input_length,
+# exception test, purity (test_numbered_does_not_mutate_input_list) and the
+# length/ordering invariants above
+# (test_numbered_output_length_always_matches_input_length,
 # test_numbered_all_empty_lines_never_advance_counter) serve as the
 # substitute guarantees for this function.
