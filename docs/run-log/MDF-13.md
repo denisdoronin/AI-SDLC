@@ -174,3 +174,121 @@ Not escalated: this is a version-control and engineering decision inside the orc
 with a decisive technical tiebreaker (Fact B), not a requirements ambiguity. The escalation rule is
 scoped to uncertainty *in requirements*, and spending the one-question budget here would have left
 any genuine requirements gap unasked. Recorded in full so the owner can overrule it cheaply.
+
+---
+
+## 2026-09-06 — `developer`
+
+**Input**
+Verbatim ticket AC + In/Out-of-scope + FR-2.2 + the PRD scope-boundary line, plus the 13 binding
+decisions above. Decisions were explicitly labelled **"orchestrator decisions derived from the
+sources, not verbatim requirements"**, with an instruction to challenge any it believed *wrong*
+rather than silently deviate — applying MDF-12 process lesson 3, where a derived constraint stated
+as fact propagated a false claim into three artifacts before review caught it.
+Constraints: touch only `src/md_formatter/tables.py`; do not alter `parse_delimiter_text`; no tests;
+no git operations; no `uv.lock` changes. Told to write the doctests as
+`print(build_markdown_table(...))` so a multi-line return renders readably instead of as a repr full
+of escapes.
+
+**Output**
+
+- Added `build_markdown_table` to the existing `src/md_formatter/tables.py`. Module docstring opening
+  line broadened to "Table parsing **and rendering** helpers"; the blank-line asymmetry paragraph
+  from MDF-12 preserved verbatim, as instructed. `parse_delimiter_text` byte-for-byte untouched.
+- Private `_MIN_COLUMN_WIDTH = 3` constant and a private pure helper `_fit(row, column_count)`
+  returning a padded copy, which is what keeps the public function non-mutating.
+- Five doctests, four using `print(...)` plus one repr case for `build_markdown_table([]) -> ''`
+  (a `print("")` would emit a blank line that doctest reads as the end of the expected block — a
+  real trap, correctly avoided).
+- All 13 binding decisions implemented; none challenged. The agent independently flagged decision 7
+  (width-matched separator) as the one most likely to draw review fire and agreed with the
+  reasoning.
+
+**Judgement calls accepted:** named constant over an inline `3`; the private `_fit` helper;
+`zip(..., strict=True)` in the row renderer so a length mismatch surfaces loudly instead of silently
+truncating; and a plain (non-raw) docstring with an escaped `"\n"`, deviating from
+`parse_delimiter_text`'s `r"""` because only one escape is involved.
+
+**Flagged by the developer, not actioned (correctly):** column widths use `len(cell)`, so wide East
+Asian characters and combining marks align by character count but not by rendered display width. No
+source requires display-width handling. Carried to "Open items" as a possible future ticket, not a
+defect against MDF-13.
+
+**Decision:** accepted, no rework requested.
+
+---
+
+## 2026-09-06 — `test-engineer`
+
+**Input**
+The 12-point behaviour contract, to be appended to the existing `tests/test_tables.py` following its
+established conventions, without modifying any of the 30 `parse_delimiter_text` tests. Explicitly
+told there are exactly **three** AC and not to invent "AC 4/AC 5" docstring citations (a defect
+review had to correct on MDF-12), and not to write the vacuous `f(x) == f(x)` purity test that was
+removed in review on both MDF-11 and MDF-12 — a genuine deep-copy mutate-then-recheck test instead.
+
+**Mutation-guard requirement made mandatory**, citing MDF-12's review finding that a green 24-test
+suite failed to pin the primary AC because two mutants survived it. Six specific mutants were
+named and the agent was told to *build and run* scratch copies, not reason about them, keeping the
+scratch files outside the repo.
+
+**Output**
+
+- `tests/test_tables.py` extended to **106 tests** total; `tables.py` at **100%** coverage (22/22).
+- **All six named mutants confirmed killed**, by building isolated package copies and running the
+  real suite against them via `PYTHONPATH`, then deleting the copies:
+
+| Mutant | Killed by |
+|---|---|
+| `ljust` padding dropped | `test_cells_are_left_justified_to_the_max_column_width` (+11 others) |
+| `_MIN_COLUMN_WIDTH` 3 -> 1 | `test_minimum_column_width_of_three_applies_even_to_single_char_cells` |
+| Separator fixed `---` instead of width-matched | `test_separator_dashes_are_width_matched_not_a_literal_placeholder` |
+| Column count from header length, not global max | `test_body_row_wider_than_header_widens_the_whole_table` |
+| Header/separator order swapped | `test_header_is_immediately_followed_by_separator_row` (+12 others) |
+| Trailing newline appended | `test_result_has_no_trailing_newline_and_lines_joined_with_newline` |
+
+- Self-corrected an arithmetic slip while drafting (assumed `"a|b"` needed padding; it is exactly 3
+  characters, the minimum width, so none applies) by running an interpreter rather than reasoning.
+- Working tree left clean of scratch artifacts — verified independently by the orchestrator via
+  `git status`.
+
+**Decision:** accepted, no rework requested.
+
+---
+
+## 2026-09-06 — Local quality gate (orchestrator-run, independently verified)
+
+Re-run by the orchestrator rather than taken from the subagents' self-reports, per the convention
+established in `MDF-16.md` and followed in `MDF-12.md`:
+
+| Gate | Command | Result |
+|---|---|---|
+| Lint | `uv run ruff check .` | All checks passed |
+| Format | `uv run ruff format --check .` | 27 files already formatted |
+| Types | `uv run mypy` (strict) | Success: no issues found in 6 source files |
+| Tests + coverage | `uv run pytest` | **106 passed**, 100% total coverage (40/40 stmts), `tables.py` 22/22 |
+| Doctests | `uv run pytest --no-cov --doctest-modules src` | 4 passed |
+
+Zero rework cycles used (limit is 3). Baseline before MDF-13 was 88 passed / 25 stmts, so the
+ticket added 18 tests and 15 statements with no regression.
+
+**Behaviour spot-check against the AC, executed directly by the orchestrator** — not read off a
+subagent report, because AC conformance is the one thing a passing suite cannot prove on its own
+(the suite could faithfully encode the wrong contract):
+
+| Input | Output | Matches |
+|---|---|---|
+| `[["Name","Age"],["Alice","30"],["Bob","7"]]` | header, separator, 2 body rows, all lines equal length | AC 1, 2, 3 |
+| `[["id","value"]]` | `\| id  \| value \|` + `\| --- \| ----- \|` only | header-only decision |
+| `[["a","b"],["c","d"]]` | all columns width 3 | min-width decision |
+| `[["a"],["b","cc","ddd"]]` | 3 columns, header padded with 2 empty cells, **no cell lost** | ragged/global-max decision |
+| `[["h1","h2","h3"],["x"]]` | short body row padded with empty cells | ragged decision |
+| `[]` and `[[]]` | `""` | empty-input decision |
+| `[["имя","возраст"],["Алиса","30"]]` | aligned | unicode |
+| `[[" pad ","a\|b"]]` | `\|  pad  \| a\|b \|` — not stripped, not escaped | documented limitations |
+| `build_markdown_table(parse_delimiter_text("a,b,c\nd,e"))` | 3-column aligned table, ragged source padded | MDF-12 -> MDF-13 pipeline |
+| purity / trailing newline | input unmutated; no trailing `\n` | DoD 2.1, return contract |
+
+Every case matches the AC and the recorded decisions. In particular the pipeline check confirms the
+ragged-row decision does the job it was reasoned to do: MDF-12's parser emits `[['a','b','c'],
+['d','e']]` and MDF-13 renders it as a complete, aligned 3-column table.
