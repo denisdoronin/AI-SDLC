@@ -351,3 +351,98 @@ Orchestrator re-checked the review findings directly against a live interpreter:
 
 1 of 3 rework iterations used. The false "does not raise" claim was also corrected in this log
 (above) and in the PR body.
+
+---
+
+## 2026-09-05 — `release-manager` (CI watch)
+
+**Input**
+PR #6, with an explicit instruction to verify the run corresponds to branch HEAD `2c1b3bb` (the
+post-review rework commit) and not the earlier `16ae9f5`/`1f3dd04` runs — `MDF-16.md` records a
+case where CI was reported green but a later follow-up commit was never re-verified.
+
+**Output — both checks green, on the correct commit.**
+
+| Check | Result |
+|---|---|
+| `Lint, type-check and test (Python 3.11)` (run `33967837408`) | **pass** (~19s), all 10 steps green |
+| `claude-review` (run `33967837414`) | **pass** (~52s) |
+
+Both runs confirmed against `headSha = 2c1b3bbc72fcf5143b43859063e3fc55e7174e7f`. PR state
+`OPEN`, `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN` (briefly `UNSTABLE` only while
+`claude-review` was still in progress).
+
+No deploy-to-test or e2e stage exists in `ci.yml` — the workflow has two jobs only, so those
+pipeline stages are N/A for this repo, not skipped or failed.
+
+Specifically checked and clean: no CRLF/line-ending discrepancy between the Windows/uv local gate
+and the Linux/pip CI runner, despite Git's `LF will be replaced by CRLF` warnings on commit. That
+was a live risk for this ticket in particular, given its `splitlines()`/CRLF handling.
+
+---
+
+## 2026-09-05 — `docs-writer`
+
+**Input**
+The new public API and its deliberate divergence from `lists.py`, plus the explicit instruction to
+**assess first** and that "no change needed" was an acceptable outcome — not to document
+reflexively. Constrained to `README.md`; Confluence edits not authorised (FR-2.1 already describes
+this function).
+
+**Output — status: SKIPPED, no files changed.** Assessment accepted.
+
+Reasoning: `README.md` is install-only and documents no public API at all. Neither
+`format_bullet_list` nor `format_numbered_list` was ever added to it by MDF-10/MDF-11, and
+`__init__.py` re-exports nothing. A `tables.py`-only section would invent a per-module API-docs
+convention this repo does not have, while silently skipping the two sibling functions. The honest
+options are "document all three evenly" or "document none"; evening it up retroactively is a
+README-structure decision that does not belong to a single-ticket doc pass. No `CHANGELOG.md`
+exists. The shipped behaviour is already fully documented in-code (docstring + 4 doctests) and in
+Confluence FR-2.1, so there is no documentation drift to close.
+
+---
+
+## 2026-09-05 — Final state
+
+**MDF-12 complete and ready for human review. Not merged — humans own approval and merge.**
+
+- **PR #6:** https://github.com/denisdoronin/AI-SDLC/pull/6 — `OPEN`, `MERGEABLE`, CI green.
+- Commits: `16ae9f5` (feat), `1f3dd04` (docs), `2c1b3bb` (post-review fix), plus this log entry.
+- Product diff: `src/md_formatter/tables.py` (new) + `tests/test_tables.py` (new, 30 tests).
+- Final gate: ruff clean, ruff format clean, mypy strict clean, **88 tests passed**, 100%
+  coverage, doctests pass.
+- 1 of 3 rework iterations used. One question escalated to the human (row semantics), answered,
+  and implemented as ruled.
+
+**Process notes worth carrying forward:**
+
+1. The first `requirements-analyst` pass searched the wrong Confluence space and reported "no
+   design docs exist". Treating that negative as suspect — because `MDF-11.md` documented three
+   unlinked standing pages — surfaced the governing FR-2.1 and resolved three of the four open
+   questions without troubling the human. **A zero-result Confluence search should be verified by
+   direct space enumeration before it is believed.**
+2. The AI review's two blocking findings were both found by **probing, not reading**: mutation
+   testing (two mutants passed all 24 original tests, so the primary AC was unpinned) and direct
+   execution of an out-of-contract input (`delimiter=""`). Neither would have surfaced from
+   inspection or from a green suite. Worth keeping as the default review posture.
+3. **The `delimiter=""` defect originated in this orchestrator's own instruction**, not the
+   developer's work: "an empty delimiter must NOT raise" over-specified a non-blocking deferral
+   into a false guarantee, which then propagated into a test docstring, the PR body and this log
+   before review caught it. Derived constraints handed to subagents should be marked as
+   inferences, not stated as facts.
+
+**Open items for the human (none blocking this PR):**
+
+1. `delimiter=""` raises `ValueError` from native `str.split`, and a multi-character delimiter
+   works silently — both outside AC 2's "single-character" contract. Current behaviour is
+   documented and pinned by tests, but **no validation was added** (deliberately, as no AC asks
+   for it). If validation is wanted, it needs a ticket.
+2. Confluence Development Guidelines §2.3 names `table_engine.py` as an illustrative filename,
+   contradicting the `tables.py` named normatively in §1 and DoD §2.1. Cosmetic page
+   inconsistency; a human should reconcile it.
+3. Carried over, still unaddressed from the MDF-16 review round: `README.md` has no testing
+   section, and `--cov-fail-under=90` makes a partial local `pytest` invocation fail even when all
+   selected tests pass.
+4. `docs/run-log/` now holds the only narrative record of the row-semantics ruling (blank lines
+   dropped). If that decision matters to FR-2.2's implementer, it may be worth reflecting in
+   Confluence FR-2.1, which is currently silent on row handling.
