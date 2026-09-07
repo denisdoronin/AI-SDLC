@@ -67,14 +67,25 @@ def build_markdown_table(rows: list[list[str]]) -> str:
     longest row, header included, so no cell is ever dropped; rows that are
     shorter are rendered as if they ended with empty cells. Each column is as
     wide as its longest cell, but never narrower than three characters, and
-    every cell is left-justified with trailing spaces to that width. The
-    separator row uses the same widths, so the pipes of the separator line up
-    with the pipes of the header and body rows.
+    every cell is left-justified with trailing spaces to that width. Each
+    padded cell is additionally surrounded by a one-space gutter inside the
+    pipes: a row is the opening ``"| "``, then the padded cells joined with
+    ``" | "``, then the closing ``" |"``, so a column of width ``n`` occupies
+    ``n`` + 2 characters between its pipes. The separator row uses the same
+    widths, so the pipes of the separator line up with the pipes of the header
+    and body rows.
 
-    Cells are rendered exactly as given: they are neither stripped nor escaped,
-    so a cell containing a literal ``"|"`` is emitted as-is and will split the
-    column when the Markdown is rendered. Escaping is outside this function's
-    contract. The input matrix and its rows are never mutated.
+    Cells are rendered exactly as given: they are neither stripped, escaped nor
+    validated. A cell containing a literal ``"|"`` is emitted as-is and will
+    split the column when the Markdown is rendered. A cell containing a line
+    break is emitted as-is too and therefore splits its row across several
+    physical lines: ``[["a\\nb", "c"], ["d", "e"]]`` renders as four physical
+    lines instead of three, the first of them the unterminated ``"| a"``. A
+    cell containing a tab is measured by :func:`len` as a single character, so
+    its column is sized as if the tab were one character wide and the cell
+    overflows that width wherever the tab is expanded. Escaping, sanitising and
+    rejecting such cells are all outside this function's contract. The input
+    matrix and its rows are never mutated.
 
     Args:
         rows: Table rows, each a list of cell values, with the header first.

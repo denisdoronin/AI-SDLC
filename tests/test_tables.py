@@ -241,6 +241,29 @@ def test_empty_or_columnless_input_returns_empty_string(rows: list[list[str]]) -
     assert build_markdown_table(rows) == ""
 
 
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        pytest.param([[""]], "|     |\n| --- |", id="single-empty-cell"),
+        pytest.param(
+            [[], ["a"]],
+            "|     |\n| --- |\n| a   |",
+            id="empty-header-row-with-nonempty-body-row",
+        ),
+    ],
+)
+def test_cases_adjacent_to_the_fully_empty_inputs_render_a_real_table(
+    rows: list[list[str]], expected: str
+) -> None:
+    """Characterisation tests for two cases one code path away from the fully
+    empty inputs in ``test_empty_or_columnless_input_returns_empty_string``: a
+    single empty cell, and an empty header row paired with a non-empty body
+    row. Both have at least one column overall, so both render a real
+    (non-empty) header-plus-separator table rather than ``""``.
+    """
+    assert build_markdown_table(rows) == expected
+
+
 def test_header_is_immediately_followed_by_separator_row() -> None:
     """AC 1 and AC 2: the first row is the header, and a separator row
     immediately follows it, before any body row.
@@ -350,6 +373,25 @@ def test_body_row_wider_than_header_widens_the_whole_table() -> None:
     assert len(lines[0].split("|")) == len(lines[2].split("|"))
 
 
+def test_all_body_rows_are_rendered_in_input_order() -> None:
+    """AC 1 and AC 2: every body row is rendered, in input order, not just the
+    first or last body row.
+
+    Mutation guard: a matrix with more than one body row is required to
+    catch a mutant that keeps only ``body[:1]``, only ``body[-1:]``, reverses
+    the body, or sorts it - each of those would leave every other test in
+    this module (deliberately at most one body row) green. The body rows
+    here are chosen out of alphabetical order so that "first only", "last
+    only", "reversed" and "sorted" each produce a different, wrong result.
+    """
+    result = build_markdown_table(
+        [["h1", "h2"], ["z1", "z2"], ["a1", "a2"], ["m1", "m2"]]
+    )
+    assert result == (
+        "| h1  | h2  |\n| --- | --- |\n| z1  | z2  |\n| a1  | a2  |\n| m1  | m2  |"
+    )
+
+
 def test_result_has_no_trailing_newline_and_lines_joined_with_newline() -> None:
     """The rendered table's lines are joined with ``"\\n"`` and the result
     carries no trailing newline.
@@ -359,7 +401,6 @@ def test_result_has_no_trailing_newline_and_lines_joined_with_newline() -> None:
     """
     result = build_markdown_table([["a", "b"], ["c", "d"]])
     assert not result.endswith("\n")
-    assert result == "\n".join(result.split("\n"))
     assert result.count("\n") == 2
 
 
