@@ -1,8 +1,12 @@
-"""Unit tests for ``md_formatter.tables.parse_delimiter_text``."""
+"""Unit tests for ``md_formatter.tables.parse_delimiter_text`` and
+``md_formatter.tables.build_markdown_table``.
+"""
+
+import copy
 
 import pytest
 
-from md_formatter.tables import parse_delimiter_text
+from md_formatter.tables import build_markdown_table, parse_delimiter_text
 
 
 def test_empty_input_returns_empty_list() -> None:
@@ -222,3 +226,239 @@ def test_mutating_returned_matrix_does_not_affect_subsequent_calls() -> None:
 # (test_mutating_returned_matrix_does_not_affect_subsequent_calls) and the
 # ragged-row invariant (test_ragged_rows_are_not_padded) serve as additional
 # guarantees for this function.
+
+
+# --- Unit tests for md_formatter.tables.build_markdown_table -----------------
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [[], [[]], [[], []]],
+    ids=["no-rows", "single-empty-row", "two-empty-rows"],
+)
+def test_empty_or_columnless_input_returns_empty_string(rows: list[list[str]]) -> None:
+    """No rows, or rows with zero columns between them, render to ``""``."""
+    assert build_markdown_table(rows) == ""
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        pytest.param([[""]], "|     |\n| --- |", id="single-empty-cell"),
+        pytest.param(
+            [[], ["a"]],
+            "|     |\n| --- |\n| a   |",
+            id="empty-header-row-with-nonempty-body-row",
+        ),
+    ],
+)
+def test_cases_adjacent_to_the_fully_empty_inputs_render_a_real_table(
+    rows: list[list[str]], expected: str
+) -> None:
+    """Characterisation tests for two cases one code path away from the fully
+    empty inputs in ``test_empty_or_columnless_input_returns_empty_string``: a
+    single empty cell, and an empty header row paired with a non-empty body
+    row. Both have at least one column overall, so both render a real
+    (non-empty) header-plus-separator table rather than ``""``.
+    """
+    assert build_markdown_table(rows) == expected
+
+
+def test_header_is_immediately_followed_by_separator_row() -> None:
+    """AC 1 and AC 2: the first row is the header, and a separator row
+    immediately follows it, before any body row.
+    """
+    result = build_markdown_table([["Name", "Age"], ["Alice", "30"]])
+    lines = result.split("\n")
+    assert lines[0] == "| Name  | Age |"
+    assert lines[1] == "| ----- | --- |"
+    assert lines[2] == "| Alice | 30  |"
+
+
+def test_header_only_input_renders_header_and_separator_with_no_body() -> None:
+    """AC 1 and AC 2: a single-row (header-only) matrix renders exactly two
+    lines - the header and the separator - and no body row.
+    """
+    result = build_markdown_table([["id", "value"]])
+    assert result == "| id  | value |\n| --- | ----- |"
+    assert len(result.split("\n")) == 2
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        pytest.param(
+            [["x", "long"], ["yy", "z"]],
+            "| x   | long |\n| --- | ---- |\n| yy  | z    |",
+            id="one-column-below-minimum-one-above",
+        ),
+        pytest.param(
+            [["a", "b", "c"], ["d", "e", "f"]],
+            "| a   | b   | c   |\n| --- | --- | --- |\n| d   | e   | f   |",
+            id="every-cell-shorter-than-minimum-width",
+        ),
+    ],
+)
+def test_cells_are_left_justified_to_the_max_column_width(
+    rows: list[list[str]], expected: str
+) -> None:
+    """AC 3: every cell is padded with trailing spaces to the width of its
+    column, where a column's width is the longest cell in it (never
+    narrower than the 3-character minimum).
+    """
+    assert build_markdown_table(rows) == expected
+
+
+def test_minimum_column_width_of_three_applies_even_to_single_char_cells() -> None:
+    """AC 3: a column whose longest cell is a single character is still
+    rendered at the 3-character minimum width, not width 1.
+
+    Mutation guard: catches a mutant that lowers ``_MIN_COLUMN_WIDTH`` from 3
+    to 1, which would shrink the separator dashes and header padding below
+    the pinned minimum.
+    """
+    result = build_markdown_table([["a"], ["b"]])
+    lines = result.split("\n")
+    assert lines[0] == "| a   |"
+    assert lines[1] == "| --- |"
+    assert lines[2] == "| b   |"
+
+
+def test_separator_dashes_are_width_matched_not_a_literal_placeholder() -> None:
+    """The separator row is not a fixed ``|---|---|`` literal: each group of
+    dashes matches its column's actual width, so pipes line up across the
+    header, separator and body lines.
+
+    Mutation guard: catches a mutant that emits a constant ``"---"`` group
+    per column regardless of width - it would pass a header-only check but
+    misalign the pipes as soon as a column is wider than 3 characters.
+    """
+    result = build_markdown_table([["x", "longest"], ["y", "z"]])
+    lines = result.split("\n")
+    header, separator, body = lines
+
+    assert separator == "| --- | ------- |"
+    # Every rendered line has the same length, and each "|" lines up at the
+    # same character offsets across header, separator and body.
+    assert len({len(line) for line in lines}) == 1
+    header_pipes = [i for i, ch in enumerate(header) if ch == "|"]
+    separator_pipes = [i for i, ch in enumerate(separator) if ch == "|"]
+    body_pipes = [i for i, ch in enumerate(body) if ch == "|"]
+    assert header_pipes == separator_pipes == body_pipes
+
+
+def test_ragged_body_rows_are_padded_with_empty_cells() -> None:
+    """A body row shorter than the widest row is rendered as if it ended
+    with empty cells, rather than raising or shifting columns.
+    """
+    result = build_markdown_table([["a", "b", "c"], ["d", "e"]])
+    assert result == "| a   | b   | c   |\n| --- | --- | --- |\n| d   | e   |     |"
+
+
+def test_body_row_wider_than_header_widens_the_whole_table() -> None:
+    """A body row wider than the header widens the entire table: the header
+    itself gains empty trailing cells rather than the extra body column
+    being dropped or the header staying narrow.
+
+    Mutation guard: catches a mutant that takes the column count from
+    ``len(header)`` instead of the global maximum row length - such a
+    mutant would drop the third column entirely instead of widening the
+    header.
+    """
+    result = build_markdown_table([["a"], ["b", "cc"]])
+    lines = result.split("\n")
+    assert lines[0] == "| a   |     |"
+    assert lines[1] == "| --- | --- |"
+    assert lines[2] == "| b   | cc  |"
+    assert len(lines[0].split("|")) == len(lines[2].split("|"))
+
+
+def test_all_body_rows_are_rendered_in_input_order() -> None:
+    """AC 1 and AC 2: every body row is rendered, in input order, not just the
+    first or last body row.
+
+    Mutation guard: a matrix with more than one body row is required to
+    catch a mutant that keeps only ``body[:1]``, only ``body[-1:]``, reverses
+    the body, or sorts it - each of those would leave every other test in
+    this module (deliberately at most one body row) green. The body rows
+    here are chosen out of alphabetical order so that "first only", "last
+    only", "reversed" and "sorted" each produce a different, wrong result.
+    """
+    result = build_markdown_table(
+        [["h1", "h2"], ["z1", "z2"], ["a1", "a2"], ["m1", "m2"]]
+    )
+    assert result == (
+        "| h1  | h2  |\n| --- | --- |\n| z1  | z2  |\n| a1  | a2  |\n| m1  | m2  |"
+    )
+
+
+def test_result_has_no_trailing_newline_and_lines_joined_with_newline() -> None:
+    """The rendered table's lines are joined with ``"\\n"`` and the result
+    carries no trailing newline.
+
+    Mutation guard: catches a mutant that appends a trailing ``"\\n"`` to the
+    joined result.
+    """
+    result = build_markdown_table([["a", "b"], ["c", "d"]])
+    assert not result.endswith("\n")
+    assert result.count("\n") == 2
+
+
+def test_input_matrix_and_rows_are_not_mutated() -> None:
+    """Purity (Definition of Done 2.1): neither the input matrix nor its
+    nested row lists are mutated by rendering.
+    """
+    rows = [["a", "bb"], ["ccc"]]
+    snapshot = copy.deepcopy(rows)
+
+    build_markdown_table(rows)
+
+    assert rows == snapshot
+
+
+def test_cells_are_not_stripped_documented_limitation() -> None:
+    """Documented limitation: cells are rendered exactly as given, so
+    surrounding whitespace in a cell is not stripped and widens the column
+    accordingly. This is not a desirable feature, just the pinned behaviour.
+    """
+    result = build_markdown_table([[" pad ", "x"]])
+    lines = result.split("\n")
+    assert lines[0] == "|  pad  | x   |"
+    assert " pad " in lines[0]
+
+
+def test_literal_pipe_in_cell_is_not_escaped_documented_limitation() -> None:
+    """Documented limitation: a literal ``"|"`` inside a cell is emitted
+    as-is, unescaped, which will visually split the column when the
+    Markdown is rendered. This is a pinned limitation, not intended
+    behaviour, per the function's docstring.
+    """
+    result = build_markdown_table([["a|b", "y"]])
+    lines = result.split("\n")
+    assert lines[0] == "| a|b | y   |"
+    assert "a|b" in lines[0]
+
+
+def test_unicode_cells_render_with_codepoint_based_widths() -> None:
+    """Cyrillic and emoji cells round-trip through rendering, with column
+    widths computed from codepoint length (``len``), not display width.
+    """
+    result = build_markdown_table([["Имя", "Возраст"], ["Алиса", "😀"]])
+    lines = result.split("\n")
+    assert lines[0] == "| Имя   | Возраст |"
+    assert lines[2] == "| Алиса | 😀       |"
+
+
+def test_integration_with_parse_delimiter_text_on_ragged_source() -> None:
+    """The two MDF-12/MDF-13 functions compose end to end: parsing a ragged
+    delimited text and rendering it produces a fully aligned table where the
+    short row is padded rather than raising.
+    """
+    result = build_markdown_table(parse_delimiter_text("a,b,c\nd,e"))
+    assert result == "| a   | b   | c   |\n| --- | --- | --- |\n| d   | e   |     |"
+
+
+def test_integration_with_parse_delimiter_text_header_only() -> None:
+    """The pipeline also composes correctly for header-only delimited text."""
+    result = build_markdown_table(parse_delimiter_text("Name,Age"))
+    assert result == "| Name | Age |\n| ---- | --- |"
