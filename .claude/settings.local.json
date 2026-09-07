@@ -6,7 +6,29 @@
       "mcp__atlassian__getAccessibleAtlassianResources",
       "mcp__atlassian__getJiraIssue",
       "Bash(./.venv/Scripts/ruff.exe check *)",
-      "Bash(echo \"EXIT=$?\")"
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(cat)",
+      "Bash(echo \"exit=$?\")",
+      "Read(//tmp/**)",
+      "Bash(cat > *)",
+      "Bash(cat >> *)",
+      "Bash(git checkout *)",
+      "Bash(uv run *)",
+      "Bash(git add *)",
+      "Bash(git commit -q -m 'docs\\(run-log\\): record MDF-12 requirements escalation, implementation and gate *)",
+      "Bash(git push *)",
+      "Bash(gh pr create --base main --head feature/MDF-12-delimited-text-parser --title 'feat\\(tables\\): add delimited text parser \\(MDF-12\\)' --body ' *)",
+      "mcp__atlassian__addCommentToJiraIssue",
+      "Bash(gh pr *)",
+      "Bash(uv run python -c ' *)",
+      "Bash(python run_mutation_check.py)",
+      "Bash(python -)",
+      "Bash(git commit -q -m 'fix\\(tables\\): correct docstring contract and close test gaps from AI review *)",
+      "Bash(gh run *)",
+      "Bash(git commit -q -m 'docs\\(run-log\\): record MDF-12 review round, CI verification and final state *)"
+    ],
+    "additionalDirectories": [
+      "d:\\Git\\AI-SDLC\\docs\\run-log"
     ]
   },
   "enabledMcpjsonServers": [
