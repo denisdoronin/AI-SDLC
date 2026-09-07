@@ -292,3 +292,176 @@ subagent report, because AC conformance is the one thing a passing suite cannot 
 Every case matches the AC and the recorded decisions. In particular the pipeline check confirms the
 ragged-row decision does the job it was reasoned to do: MDF-12's parser emits `[['a','b','c'],
 ['d','e']]` and MDF-13 renders it as a complete, aligned 3-column table.
+
+---
+
+## 2026-09-06 — PR creation
+
+- Commit `d3cdb35` — `docs(run-log): record MDF-13 intake, requirements and branch-base decision`.
+- Commit `50f9b38` — `feat(tables): add aligned markdown table generator` (Conventional Commits).
+- Commit `aefbb0d` — `docs(run-log): ...`, pushed to `feature/MDF-13-aligned-table-generator`.
+- **PR #7** opened against `main`: https://github.com/denisdoronin/AI-SDLC/pull/7
+- Incremental diff vs the MDF-12 base: `src/md_formatter/tables.py` +92, `tests/test_tables.py`
+  +203, `docs/run-log/MDF-13.md` +294. **Product diff 295 lines**, under the 400-line guidance.
+- PR body opens with a blockquoted **"STACKED PR — DO NOT MERGE BEFORE #6"** banner carrying the
+  full branch-base rationale, since `git log main..HEAD` legitimately shows MDF-12's five commits
+  as well as MDF-13's three.
+- A first `git add -A` accidentally staged a tooling-generated `.claude/settings.local.json` edit.
+  Caught by inspecting `git show --stat` rather than trusting the commit, then removed via
+  `reset --soft` + `restore --staged` so the branch carries only intended files. Settings files are
+  kept out of the branch per the MDF-16/MDF-12 precedent.
+- Not merged, not approved.
+
+## 2026-09-06 — JIRA comment
+
+Comment `10034` added to MDF-13 with the PR link, the merge-order warning, the gate results, the
+four decisions taken where the AC was silent, and the documented limitations:
+https://dedoronin-1786901899646.atlassian.net/browse/MDF-13?focusedCommentId=10034
+Comment only — no status transition (left at **In Progress**), no field or AC edits, no assignee
+change. The agent re-confirmed read-only that the status and all three AC were unchanged.
+
+---
+
+## 2026-09-06/07 — `code-reviewer` (first/AI review, before human) — TWO CONFLICTING VERDICTS
+
+**Input**
+PR #7 + the verbatim three AC, FR-2.2, the PRD scope boundary, DoD 2.1, and the six orchestrator
+rulings marked as settled — with the explicit carve-out that a ruling could be challenged if
+*factually wrong* rather than merely different, and ruling 3 (width-matched separator) singled out
+as the one I wanted pressure-tested. Told to review only `git diff feature/MDF-12-delimited-text-parser HEAD -- src tests`,
+since the stacked branch makes `git diff main HEAD` include MDF-12. Instructed to probe rather than
+inspect, to invent mutants the `test-engineer` had *not* already tried, and to fact-check every
+claim in the docstring, PR body and this run log.
+
+**This step produced two contradictory verdicts and had to be adjudicated.**
+
+| Review | Verdict | Blocking | Notes |
+|---|---|---|---|
+| A (first run) | **APPROVE** | 0 | 22 mutants, 20 killed, 2 proved equivalent; 20,000-matrix property test; every claim verified |
+| B (re-run) | **REQUEST_CHANGES** | 1 | AST-parsed the suite and found the body-row gap |
+
+Review A completed but never posted to the PR, so the run was repeated. The repeat found a blocking
+defect the first pass missed, despite the first pass being the more statistically thorough of the
+two (20k random matrices vs. an AST scan). **The lesson is that volume of fuzzing did not
+substitute for reasoning about what the test inputs structurally failed to cover:** A's random
+matrices exercised the renderer heavily but A never asked whether the *suite* varied body-row count.
+
+**Orchestrator adjudication: I reproduced B's finding myself rather than trusting either agent.**
+
+```
+*(render(_fit(row, column_count)) for row in body[:1]),   # drop all body rows after the first
+```
+Built as a copy outside the repo, run via `PYTHONPATH` override, with the import path asserted so
+the mutant could not be shadowed by the real module: **`48 passed`.** A silent data-loss regression
+stays green at 100% coverage.
+
+Independently confirmed the root cause by AST-parsing every literal `build_markdown_table(...)` call
+site in the suite: matrix row-counts were `{2 rows: 7, 1 row: 3}` — **never more than one body
+row**, so any transformation of the body sequence was a no-op. `body[-1:]`, `reversed(body)` and
+`sorted(body)` survive for the same reason.
+
+**Verdict taken: REQUEST_CHANGES.** This is the identical failure mode that blocked MDF-12 — a green
+suite at 100% coverage that does not actually pin the behaviour — recurring one ticket later, and
+recurring *despite* the mandatory mutation-guard instruction, because the six mutants specified were
+all about cell rendering and none about body-row iteration.
+
+**Findings both reviews agreed on:**
+
+- `tests/test_tables.py:362`, `assert result == "\n".join(result.split("\n"))` — a **mathematical
+  identity**, true for every string, so no mutant can fail it. Verified by hand. Notable because the
+  PR body and this log both claimed the MDF-11/MDF-12 tautological-assertion pattern had been
+  avoided; it had reappeared in a new disguise.
+- The docstring's limitations paragraph omits **control characters**, the worst limitation: a `\n`
+  inside a cell renders a 3-row table as 4 physical lines and destroys alignment; a tab miscounts
+  width.
+
+**On ruling 3, which I asked to be attacked: both reviews independently argued *for* it.** A fixed
+`|---|` separator under width-padded cells would make AC 2 and AC 3 contradict each other, since
+cell padding is invisible in rendered GFM and so AC 3 would accomplish nothing. Review A also built
+the *subtle* variant the `test-engineer` had not — constant `---` groups `ljust`-padded to column
+width, so the pipes still line up and only the dash count differs — and confirmed the suite kills
+it, i.e. the reading is genuinely pinned rather than accidentally satisfied. Review B added the
+useful correction that AC 2's two-group `'|---|---|'` is **not** evidence against width-matching:
+it reads as "one group per column" and is simply silent on width.
+
+**Clean on both reviews:** implementation correctness (no defect found in the shipped logic by
+either), deep purity by value *and* by nested-list `id()`, the no-data-loss property, no trailing
+newline, minimum width 3, pipe alignment on every line, out-of-contract input failing loudly rather
+than emitting garbage, performance, no security surface. `parse_delimiter_text` confirmed
+byte-for-byte identical to the MDF-12 branch and the blank-line asymmetry paragraph verbatim —
+checked by substring comparison against `feature/MDF-12-delimited-text-parser`, not by reading the
+diff. All ten rows of this log's spot-check table reproduced exactly.
+
+**Process note:** `gh pr review --request-changes` was rejected by GitHub ("Can not request changes
+on your own pull request") because the PR author and the authenticated account are the same. The
+review was posted with `gh pr comment` instead, with the verdict stated in the body. A formal
+review state can only come from a different account — worth knowing for every future ticket in this
+repo, since it means the AI review can never appear as a GitHub review state, only as a comment.
+
+---
+
+## 2026-09-07 — Rework (iteration 1 of max 3)
+
+Two agents run concurrently on disjoint files, so they could not collide.
+
+`test-engineer` — `tests/test_tables.py`, **the blocking fix**:
+
+- Added `test_all_body_rows_are_rendered_in_input_order`: a header plus **three** body rows,
+  deliberately out of alphabetical order (`h1/h2`, `z1/z2`, `a1/a2`, `m1/m2`), asserting the exact
+  expected string so that row **count**, **order** and **content** are pinned at once. The
+  out-of-order choice is what kills `sorted(body)`, which an in-order fixture would not.
+- Deleted the vacuous `assert result == "\n".join(result.split("\n"))`, keeping the two genuine
+  assertions in that test.
+- Added `[[""]]` -> `"|     |\n| --- |"` and `[[], ["a"]]` -> `"|     |\n| --- |\n| a   |"` as
+  characterisation tests, values obtained by **running** the function rather than assumed. The agent
+  was told to report if either looked wrong rather than silently encode it; it judged both correct
+  and consistent with the documented contract.
+
+`developer` — `src/md_formatter/tables.py`, **docstrings only, zero logic lines changed**:
+
+- Limitations paragraph widened from "neither stripped nor escaped" to "neither stripped, escaped
+  nor validated", adding the two control-character cases: a cell containing a line break splits its
+  row across physical lines (`[["a\nb","c"],["d","e"]]` renders as four physical lines, the first
+  the unterminated `"| a"`), and a tab is measured by `len` as one character so the cell overflows
+  its column once expanded. Framed as limitations outside the contract — **no validation, no
+  raising, no sanitising added**, since no AC asks for it.
+- The rendering paragraph now states the **one-space gutter** inside the pipes explicitly; without
+  it a reader computing expected output from the docstring would derive `|Name |Age|`.
+- Behaviour was executed before being described, not taken from my summary on trust.
+
+**Orchestrator verification — done directly, not accepted from the agents' reports:**
+
+- Re-built all four body-row mutants outside the repo and ran the real suite against each via
+  `PYTHONPATH`, asserting `applied=1` each time so a silently-failed `sed` could not masquerade as a
+  kill. Result: **all four now fail exactly one test**, the new body-row test.
+  (Before the fix, the same harness gave `48 passed` — the mutants survived.)
+- Proved the `tables.py` change is docstring-only by parsing the pre- and post-edit sources,
+  stripping every docstring node, `ast.unparse`ing both and diffing: **0 lines**. This matches the
+  developer's own independent AST check.
+- Confirmed the vacuous assertion is gone (`grep -c` -> 0).
+
+**Local quality gate after rework (orchestrator-run, independently verified):**
+
+| Gate | Result |
+|---|---|
+| `ruff check .` | All checks passed |
+| `ruff format --check .` | 27 files already formatted |
+| `mypy` (strict) | Success: no issues found in 6 source files |
+| `pytest` | **109 passed**, 100% coverage (40/40), `tables.py` 22/22 |
+| `pytest --no-cov --doctest-modules src` | 4 passed |
+
+Commit `509c847` — `fix(tables): close body-row test gap and document control-char limits`.
+**1 of 3 rework iterations used.**
+
+**Deliberately not actioned:**
+
+- Review suggestion 5, `_fit`'s precondition being unenforced. The violating state is unreachable by
+  construction (every caller fits the row first) and adding validation for an unreachable branch
+  would be scope creep plus an uncoverable line, which the 90% coverage gate would then penalise.
+- Review A's two surviving mutants, both **proved equivalent** rather than missed: `_fit` filler
+  `""` -> `" "` (differentially fuzzed over 3,000 matrices, zero observable differences) and
+  `strict=True` -> `False` (unreachable). Equivalent mutants are not test gaps.
+
+An imprecise claim in the PR body — "reversible via one constant", when `render()`'s `ljust` would
+still apply and yield `| ---   | --- |` rather than `|---|---|` — was corrected in the PR body
+rather than left standing, per the MDF-12 lesson that false claims propagate across artifacts.
