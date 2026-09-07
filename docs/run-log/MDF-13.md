@@ -465,3 +465,134 @@ Commit `509c847` — `fix(tables): close body-row test gap and document control-
 An imprecise claim in the PR body — "reversible via one constant", when `render()`'s `ljust` would
 still apply and yield `| ---   | --- |` rather than `|---|---|` — was corrected in the PR body
 rather than left standing, per the MDF-12 lesson that false claims propagate across artifacts.
+
+---
+
+## 2026-09-07 — `release-manager` (CI watch)
+
+**Input**
+PR #7, with an explicit instruction to verify the runs correspond to branch HEAD
+`17cef38ffa7b4e559d599da623554b40bd826b72` and **not** the earlier `aefbb0d` run — citing
+`MDF-16.md`, which records a case in this repo where CI was reported green but a later follow-up
+commit was never re-verified. Also asked to check the Windows/uv vs Linux/pip line-ending risk,
+which is sharper for MDF-13 than for MDF-12 because the tests now assert **full multi-line table
+strings** rather than single lines.
+
+**Output — both checks green, on the correct commit.**
+
+| Check | Run | Result | headSha |
+|---|---|---|---|
+| `Lint, type-check and test (Python 3.11)` | `34106660980` | **pass** | `17cef38` |
+| `claude-review` | `34106660990` | **pass** | `17cef38` |
+
+CI results: ruff clean, ruff format 27 files, mypy 6 files, **109 passed**, doctests 4 passed —
+identical to the local gate. PR state `OPEN`, `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`.
+
+**Verified independently by the orchestrator** rather than accepted from the report:
+`git rev-parse HEAD`, `gh pr view 7 --json headRefOid` and both runs' `headSha` are all
+`17cef38...`. The superseded pre-review pair (`34055522044`/`34055522051`) is attached to `aefbb0d`
+and was correctly excluded as evidence.
+
+Noted and explained, not a gap: the intermediate rework commit `509c847` never got its own
+`pull_request` run, because `17cef38` was pushed in the same operation and the workflow's
+`concurrency: cancel-in-progress` collapsed them. No orphaned or cancelled run is left in an
+ambiguous state, and the commit that matters — the branch tip — is verified green.
+
+**Line-ending risk: clean.** The exact-string assertions use Python escape literals, which compile
+into bytecode independently of the source file's own on-disk EOL convention, so neither Windows
+`core.autocrlf` nor the Linux runner's LF checkout can affect them. All 109 tests, including the
+full multi-line table comparisons and the no-trailing-newline test, pass identically on both
+platforms. The MDF-12 finding still holds for the stricter assertions MDF-13 introduces.
+
+No deploy-to-test or e2e stage exists in `ci.yml` — a single `quality-checks` job — so those
+pipeline stages are **N/A for this repo**, not skipped and not failed. Same as MDF-12.
+
+---
+
+## 2026-09-07 — `docs-writer`
+
+**Input**
+The new public API and its limitations, with an explicit instruction to **assess first** and that
+"no change needed" was an acceptable outcome. Constrained to repository files; Confluence edits not
+authorised (FR-2.2 already describes this function). Told to **re-verify** the five facts MDF-12's
+docs pass relied on rather than take them on trust, since the repo has moved since, and given one
+genuinely new consideration: `tables.py` now hosts a two-function *pipeline*, a usage story that did
+not exist at MDF-12.
+
+**Output — status: SKIPPED, no files changed.** Assessment accepted.
+
+All five facts re-verified and still true: `README.md` is install-only; MDF-10/MDF-11's two public
+functions are still absent from it; `__init__.py` re-exports nothing; no `CHANGELOG.md` exists; and
+the README still has no testing section.
+
+The new pipeline consideration was weighed and correctly rejected as a reason to change course: the
+reason to skip was never "one function is too small to document", it was that the README documents
+*no* module's public API, so a `tables.py`-only section would invent a per-module convention while
+silently omitting `lists.py`'s two functions. A two-function pipeline section is still selective
+documentation — it just covers two functions instead of one. Evening this up across all four public
+functions is a README-structure decision, not a single-ticket doc pass.
+
+Shipped behaviour is already fully documented in-code (docstring + 5 doctests) and in Confluence
+FR-2.2, so there is no documentation drift to close.
+
+---
+
+## 2026-09-07 — Final state
+
+**MDF-13 complete and ready for human review. Not merged — humans own approval and merge.**
+
+- **PR #7:** https://github.com/denisdoronin/AI-SDLC/pull/7 — `OPEN`, `MERGEABLE`, CI green on HEAD.
+- Commits: `d3cdb35` (log), `50f9b38` (feat), `aefbb0d` (log), `509c847` (post-review fix),
+  `17cef38` (log).
+- Product diff: `src/md_formatter/tables.py` (adds `build_markdown_table`, `_fit`,
+  `_MIN_COLUMN_WIDTH`) and `tests/test_tables.py` (109 tests total).
+- Final gate: ruff clean, ruff format clean, mypy strict clean, **109 tests passed**, 100% coverage,
+  doctests pass — confirmed identically on the Linux CI runner.
+- **1 of 3 rework iterations used. Zero questions escalated to the human.**
+
+**Process notes worth carrying forward:**
+
+1. **The `code-reviewer` step produced two contradictory verdicts** (APPROVE / REQUEST_CHANGES) and
+   had to be adjudicated rather than accepted. The more statistically thorough pass — 22 mutants,
+   20,000 random matrices — **missed** the blocking defect that a simple AST scan of the *test file*
+   found. Heavy fuzzing of the implementation is not a substitute for asking what the test inputs
+   structurally never vary. Worth running that cheap structural check on the suite itself.
+2. **The MDF-12 failure mode recurred one ticket later**, despite a mandatory mutation-guard
+   instruction: a green suite at 100% coverage that did not pin the behaviour. The instruction named
+   six mutants, all about *cell rendering*, and the real gap was in *body-row iteration*.
+   Enumerating specific mutants steers the agent toward them and away from everything unnamed.
+   Better to require a coverage-of-input-shapes argument — "which structural dimensions of the input
+   does the suite never vary?" — alongside any named-mutant list.
+3. The tautological-assertion pattern removed in review on MDF-11 and MDF-12 **reappeared in a new
+   disguise** (an identity over join/split) in a PR whose own body claimed it had been avoided.
+   Banning a pattern by example does not generalise; what caught it was asking whether any mutant
+   *could* fail the assertion.
+4. `gh pr review --request-changes` cannot be used in this repo — GitHub rejects it because the PR
+   author and the authenticated account are the same. The AI review can only ever appear as a PR
+   *comment*, never as a formal review state.
+5. Two rework agents ran **concurrently on disjoint files** with no collision. One reported the
+   other's in-flight edits as suspicious working-tree state — harmless, but concurrent agents should
+   be told about each other, as the second prompt did.
+6. A placeholder commit hash was written into this log before the real hash existed, and was
+   corrected once known. Cheap to fix, but it is the same species as the MDF-12 false-claim lesson:
+   do not write a fact into an artifact before it is true.
+
+**Open items for the human (none blocking this PR):**
+
+1. **Merge order: PR #6 must merge before PR #7.** #7 is stacked on the MDF-12 branch, so merging it
+   first would carry MDF-12 into `main` without #6 having been approved.
+2. **MDF-12's JIRA status disagrees with reality**: it is marked **Done** with a 2026-09-06
+   resolution date, while its only comment says "Awaiting AI code review, CI, and human approval.
+   Not merged" and PR #6 is in fact still open. The orchestrator does not transition tickets.
+3. PR #6's head is `ad76b06` ("permissions...", a human's own commit), which is **past `2c1b3bb`** —
+   the commit at which `MDF-12.md` records CI as verified green. #6's CI should be re-checked
+   against its current head before merging.
+4. Cell width uses `len()`, so wide East Asian characters and combining marks align by character
+   count but not by rendered display width. Needs its own ticket if wanted.
+5. No pipe escaping, no cell stripping, and control characters in cells break the table — all
+   deliberate, all now documented, none required by any AC. Each needs a ticket if wanted.
+6. Carried over, still unaddressed from MDF-12 and MDF-16: `README.md` has no testing section, and
+   `--cov-fail-under=90` makes a partial local `pytest` invocation fail even when all selected tests
+   pass.
+7. Confluence Development Guidelines section 2.3 still names `table_engine.py` as an illustrative
+   filename, contradicting the `tables.py` named normatively in section 1 and DoD 2.1.
