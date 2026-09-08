@@ -34,6 +34,13 @@ Known limitations:
   unowned rather than filed under MDF-15: the standard-input and
   standard-output cases act on streams rather than on file contents, and the
   ``--output`` case is an encode on write rather than a decode.
+* Reporting a failure is unguarded too. The one-line error message is written
+  to standard error from inside the ``except`` clause that handles the failed
+  read or write, so a standard error that rejects the write raises from within
+  that handler and the exception escapes :func:`main` in place of exit code
+  ``1``; the ``Raises`` section of :func:`main` records which exception each
+  kind of rejection produces. This is an unowned edge as well: it concerns the
+  error channel rather than file contents, so MDF-15 does not cover it.
 """
 
 import argparse
@@ -201,8 +208,15 @@ def main(argv: list[str] | None = None) -> int:
     Two kinds of failure are handled here: a usage error, which :mod:`argparse`
     turns into :class:`SystemExit`, and an :class:`OSError` from the read or
     the write, which is reported and turned into exit code ``1``. Anything else
-    propagates to the caller. The exceptions known to escape are listed below;
-    that list records what has been observed, not a proof of exhaustiveness.
+    propagates to the caller, the reporting of those two kinds included: both
+    :func:`_fail` and the parser write their message to a standard stream, and
+    neither guards against every way such a write can fail, so a stream that
+    rejects it can replace the outcome with the exception raised by that write.
+    The :class:`ValueError` that :func:`format_text`
+    raises is not among the escapes, because the parser rejects both of its
+    triggering conditions first. The exceptions known to escape are listed
+    below; that list records what has been observed, not a proof of
+    exhaustiveness.
 
     Args:
         argv: Command-line arguments without the program name. When ``None``,
@@ -221,6 +235,30 @@ def main(argv: list[str] | None = None) -> int:
         SystemExit: Propagated from :mod:`argparse` with code ``2`` for a usage
             error, which includes a missing or unknown ``--mode`` and an empty
             ``--delimiter``, and with code ``0`` for ``--help``.
+        OSError: Never the one from :func:`_read_input` or
+            :func:`_write_output`, which is caught and turned into exit code
+            ``1``, but the one raised by the report of that failure: the
+            :func:`print` in :func:`_fail` runs inside the ``except`` clause
+            and is itself unguarded, so an error writing the report escapes
+            instead of the exit code being returned. It has been observed as
+            :class:`BrokenPipeError` on a standard error that rejects the write
+            at once, on the read path and on the write path alike. A buffered
+            standard error usually defers the same failure to interpreter
+            shutdown, where it is reported as an ignored exception and this
+            function still returns ``1``. The parser's own writes do not
+            contribute here: :meth:`argparse.ArgumentParser._print_message`
+            swallows :class:`OSError`.
+        ValueError: Raised by a write to a standard stream that is closed
+            rather than merely broken, which both :func:`print` and the
+            parser's message writer report as ``I/O operation on closed file``;
+            the parser does not swallow that one, so a usage error against a
+            closed standard error ends in this rather than in
+            :class:`SystemExit`. Not the :class:`ValueError` of
+            :func:`format_text`: an unknown mode is rejected by ``choices`` and
+            an empty ``--delimiter`` by :func:`_non_empty_delimiter`, both as
+            usage errors, so neither reaches that call through this entry
+            point. The two subclasses below come from the codec layer instead
+            and are listed separately.
         UnicodeDecodeError: Propagated from :func:`_read_input` and caught
             nowhere, because it subclasses :class:`ValueError` rather than
             :class:`OSError` and so slips past the handler around the read. It
