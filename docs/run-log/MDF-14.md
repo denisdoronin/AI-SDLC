@@ -911,3 +911,18 @@ Also satisfies PRD **FR-3.1** and **FR-3.2** in full, and **FR-3.3** for the `OS
    pass.
 9. Confluence Development Guidelines section 2.3 still names `table_engine.py` illustratively,
    contradicting the `tables.py` named normatively in section 1.
+
+---
+
+## 2026-09-08 — Merged
+
+**PR #8 merged to `main`** by `denisdororonin` at 2026-09-08T16:21:54Z, merge commit `706c16e`,
+squash strategy. B2 (incomplete `Raises:` on `main`) had one further round after the state recorded
+above: a human-directed follow-up fix landed as commit `6d0c032` on the branch before merge, closing
+the two remaining unowned escapes (`OSError` and `ValueError` propagating from `main`'s own error
+reporting when a standard stream is broken or closed, not merely the format/IO exceptions already
+covered) — verified against the installed CPython 3.11.11 `argparse` source rather than assumed, and
+proved behaviour-neutral by an AST diff over the stripped docstrings. Final head `6d0c032`, CI and
+`claude-review` both green on that commit before merge. Merge authorised and executed directly by the
+human; no agent performed the merge. MDF-14 pipeline complete. Open items 1–9 above remain open for
+human disposition; none were resolved by the merge itself.
