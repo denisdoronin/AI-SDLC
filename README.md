@@ -29,6 +29,6 @@ Flags:
 - `--input`: file to read; standard input is used when omitted.
 - `--output`: file to write; standard output is used when omitted.
 
-Exit codes: `0` success, `1` file I/O error, `2` usage error.
+Exit codes: `0` success, `2` usage error, `1` a file or I/O failure. A missing or unreadable file is reported as a single-line message on stderr; some failures, notably a non-UTF-8 input file, currently surface as an unhandled Python error instead.
 
 Run `md-formatter --help` for full details.

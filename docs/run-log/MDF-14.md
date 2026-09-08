@@ -578,3 +578,221 @@ still exit 0 and render correctly.
   mode is thoroughly varied at the `format_text` layer, and the dispatch mutant that would exploit
   a gap here (`numbered` calling `format_bullet_list`) was already built and killed. Carried to open
   items.
+
+---
+
+## 2026-09-08 — `release-manager` (CI watch)
+
+**Input**
+PR #8, with an explicit instruction to verify the runs correspond to branch HEAD
+`8f90166842cdbe394710d289f18753044a40f5b4` and **not** the superseded pre-review commit `fa31468` —
+citing `MDF-16.md`, which records a case in this repo where CI was reported green but a later
+follow-up commit was never re-verified. Also asked to check three named risks rather than assume
+them: CRLF-vs-LF on file assertions, the non-ASCII round trips under a different preferred encoding,
+and the version-sensitivity of the new doctest traceback.
+
+**Output — both checks green, on the correct commit, with exact numeric parity.**
+
+| headSha | Workflow | Conclusion | Status |
+|---|---|---|---|
+| `fa31468` | CI | success | **SUPERSEDED** — pre-review-fix, not evidence |
+| `fa31468` | Claude Code Review | success | **SUPERSEDED** |
+| `8f90166` (run `34242753200`) | CI | **success** | **AUTHORITATIVE** |
+| `8f90166` (run `34242753530`) | Claude Code Review | **success** | **AUTHORITATIVE** |
+
+SHA cross-check: `git rev-parse HEAD`, `gh pr view 8 --json headRefOid` and both authoritative runs'
+`headSha` are all `8f90166...`. PR state `OPEN`, `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`.
+
+**Windows local vs Linux CI — no divergence of any kind:** ruff clean / 31 files formatted / mypy 9
+source files / **164 passed** / **100% coverage (99/99)** / doctests **6 passed**, identical on both
+platforms. Same test count, same statement count, same coverage percentage.
+
+Explained rather than glossed: the intermediate commit `626172f` never got its own run, because it
+and `8f90166` were committed one second apart and pushed in a single operation, so GitHub fired one
+`synchronize` event for the final SHA. `626172f`'s content is fully contained in the `8f90166` run.
+No orphaned or cancelled run is left ambiguous.
+
+**The three named risks, answered from evidence:**
+
+1. **Line endings — clean by construction.** No test uses `read_bytes()` or asserts a byte length;
+   the only match for "bytes" in the suite is a docstring explaining *why* the assertions avoid them.
+   Every file-output assertion uses `read_text(encoding="utf-8")`, i.e. universal-newline text mode,
+   so CRLF-vs-LF cannot affect it — and those tests are among the 164 that passed on Linux.
+2. **Encoding — confirmed, not assumed.** The non-ASCII round trips (Cyrillic, emoji, and the `café`
+   column-width case) all pass on the Linux runner, where the preferred encoding is `UTF-8` rather
+   than the dev machine's `cp65001`.
+3. **Doctest traceback — confirmed passing** on Python 3.11.16 on Linux; the doctest step is visible
+   in the CI log as `src/md_formatter/cli.py ..` with `6 passed`.
+
+No deploy-to-test or e2e stage exists in `ci.yml` — a single `quality-checks` job — so those pipeline
+stages are **N/A for this repo**, not skipped and not failed. Same as MDF-12 and MDF-13.
+
+**Gap the release-manager flagged, and the orchestrator acted on.** The `claude-review` job on
+`8f90166` passed but posted **no comment at all**: that workflow is configured for inline comments
+only, so its "pass" means "the automation ran and flagged nothing inline", not "a reviewer
+re-confirmed the fixes". Combined with the fact that the `code-reviewer` verdict of record was
+`REQUEST_CHANGES` against `fa31468`, that left the PR green on numbers but with no review statement
+covering the fixed state. A **focused re-review** was therefore commissioned rather than closing the
+ticket on CI numbers alone — scoped to two questions (are the five findings genuinely fixed, and did
+the fixes break anything new) instead of repeating the parts that already passed.
+
+---
+
+## 2026-09-08 — `code-reviewer` (focused re-review of the fixed state) — REQUEST_CHANGES, 1 blocking
+
+**Why this step exists at all.** The `release-manager` flagged that the PR was green on numbers but
+carried no review statement covering the fixed code: the `code-reviewer` verdict of record was
+`REQUEST_CHANGES` against `fa31468`, and the `claude-review` GitHub job on `8f90166` posted nothing
+because that workflow is configured for inline comments only. Closing the ticket on CI numbers alone
+would have meant shipping a PR whose only prose review said "5 blocking findings".
+
+**Input**
+Deliberately **scoped to two questions** rather than a full re-review — are the five findings
+genuinely fixed, and did the fixes break anything new — with `git diff fa31468 8f90166` as the unit
+of study. Asked to go **beyond** the named fixes on B4 and B5: try `utf-16` and read-site-only /
+write-site-only encoding mutants, and try `.rstrip()` and `.rstrip("\n")` as weaker variants of the
+B5 mutant. Also asked to verify the README, since its author (`docs-writer`) has no Bash tool and
+could not execute any of its own claims.
+
+**Method note worth keeping:** the reviewer cloned `8f90166` into the scratchpad with its own venv
+and reproduced the baseline (164 passed, 100%, 6 doctests) before mutating anything, so every result
+below is against a known-good copy outside the repo.
+
+**Output — 4 of 5 fixed, 1 regressed.**
+
+| Finding | Verdict |
+|---|---|
+| B1 empty `--delimiter` traceback | **FIXED** — exit 2 not 1, exact message, zero tracebacks, all three modes, both entry points; multi-char and default-comma paths unaffected. The subtle sub-claim also checks out: argparse **does** apply `type=` to the default, confirmed by instrumenting the validator |
+| B2 incomplete `Raises:` | **NOT FIXED — regressed** (see below) |
+| B3 false `Returns:` wording | **FIXED** — exactly true at n = 0/1/2/3 whitespace lines across all three modes |
+| B4 encoding contract unpinned | **FIXED, stronger than claimed** |
+| B5 `.strip()` mutant survived | **FIXED** |
+
+**B4 landed better than advertised — 7 mutants, all killed by the new test alone:** both sites to
+`latin-1`, both to `cp1252`, both to `utf-16`, **read-site-only** to `latin-1`, **write-site-only**
+to `latin-1`, read-only to `utf-16`, write-only to `utf-16`. The independent read-only and
+write-only kills are the notable result: the fix was claimed to catch the both-sites case, and it
+actually pins each site separately.
+
+**The blocking regression (B2).** The rework replaced an *incomplete* `Raises:` with an explicit
+**exhaustiveness guarantee** — "Nothing else escapes: the parser guarantees `--mode` … and
+`--delimiter` … which are the only two inputs `format_text` can raise on, and both file operations
+catch `OSError` …" — which is **false**. Two escapes, both reproduced by the reviewer and then
+**independently re-reproduced by the orchestrator through the installed console script**:
+
+| Escape | Trigger | Result |
+|---|---|---|
+| `UnicodeDecodeError` | input file that is not valid UTF-8 | raw traceback, exit 1 |
+| `UnicodeEncodeError` | `PYTHONIOENCODING=ascii` with a `café` input, on the **stdout write** | raw traceback, exit 1 |
+
+The flaw in the reasoning is precise: the claim argues only about `format_text`'s *inputs* and about
+`OSError` from the file operations, and overlooks the **codec layer** inside `_read_input` and
+`_write_output` entirely. `main`'s `Returns:` compounds it by promising "a single-line message is
+printed to standard error" for exit 1, which the decode path violates.
+
+**This is the fourth consecutive ticket in this repo where a docstring claim was found false in
+review, and the first where the *fix* for that class of defect introduced a worse instance of it** —
+going from silence about a case to an affirmative universal claim that is wrong. The lesson recorded
+for future passes: a universal claim ("nothing else", "the only") is far more expensive to get wrong
+than an incomplete one, so it must be *falsified by execution* before being written, not derived by
+reading the code.
+
+**Also flagged:** the `UnicodeEncodeError` on **stdout** is a stream *write*, which does not sit
+obviously inside MDF-15's "file-content and decoding failures" framing — an unowned edge rather than
+a case the boundary already covers. Carried to open items.
+
+**Non-blocking findings accepted for this pass:** the `.lstrip()` mutant on
+`f"{result}\n"` **survives** (a leading blank line in the result is unpinned, the mirror of the
+trailing case that B5 fixed), and the B5 test's docstring overclaims by saying it pins the
+"leading/trailing" contract when only trailing is pinned.
+
+**Probed and clean — explicitly not defects:** the validator over-rejects nothing (tab, space,
+newline, `::`, `|`, `.`, `.*`, `-`, em-dash, Cyrillic and emoji delimiters all exit 0 and render
+correctly; it is the identity function except for the empty string); the new doctest is **not**
+brittle (`traceback.format_exception_only` guarantees the module-qualified name and doctest ignores
+traceback bodies unconditionally); and the three assertions removed under S4 lost nothing, since each
+sat directly beneath an exact-equality assertion on the same value.
+
+**README verified by execution** (which its own author could not do): console script on PATH, the
+example command exits 0 and produces the documented output, `python -m` genuinely equivalent, all
+four flag descriptions match `--help` **verbatim**, the comma default real. **One overclaim found** —
+the exit-code line reads as an exhaustive map but `UnicodeDecodeError` also exits 1, with a traceback
+and no `md-formatter: error:` line.
+
+---
+
+## 2026-09-08 — Rework (iteration 2 of max 3)
+
+Three agents run **concurrently on disjoint files** — `developer` on `cli.py` (docstrings only),
+`test-engineer` on `tests/test_cli.py`, `docs-writer` on `README.md` — each told about the other two
+so that a foreign modified file would not be reported as suspicious working-tree state (MDF-13
+lesson 5). No collisions.
+
+### `developer` — the falsification instruction paid for itself twice
+
+Briefed that the previous pass produced the defect precisely *because* it derived an exhaustiveness
+claim by reading the code, and instructed that before writing any sentence of the form "X is the
+only…" or "nothing else…", it must actively try to falsify it by construction.
+
+**It did, and the reviewer's own framing broke twice.** Documenting only the two reported
+counterexamples would have produced text false in the same way as the text it replaced:
+
+| Escape found by the developer, missed by the review | Trigger |
+|---|---|
+| `UnicodeDecodeError` from **standard input** | piped bytes that do not match the stream's encoding — not just the `--input` file |
+| `UnicodeEncodeError` on the **`--output` file write** | text carrying surrogates, e.g. from stdin read with `surrogateescape` — not just stdout |
+
+So the ownership note covers **four** cases, not two: one belongs to MDF-15 (`--input` file decode)
+and **three are unowned edges** (stdin decode, stdout encode, `--output` surrogate encode). None was
+silently filed under MDF-15.
+
+Changes: the false "Nothing else escapes…" sentence **deleted outright**, replaced by `SystemExit`
+plus explicit `UnicodeDecodeError`/`UnicodeEncodeError` entries naming both trigger conditions each;
+`Returns:` corrected so the single-line-stderr promise attaches to the `OSError` path specifically,
+with an explicit note that a run can stop with status 1 *without `main` returning at all*; and a new
+body paragraph that is deliberately **non-absolute**: "that list records what has been observed, not
+a proof of exhaustiveness."
+
+The one universal it did keep — "that is the only path on which this function returns `1`" — was
+proved by **AST enumeration** of `main`'s return sites rather than by reading, and it flagged that
+the claim holds only while no new `return` is added.
+
+### `test-engineer` — `.lstrip()` survivor closed
+
+Added `test_main_pins_leading_newline_contract_when_result_has_a_blank_line`, the mirror of the
+trailing case, with the expected value obtained by **running** the CLI (`"\nx\n"` in bullet mode
+gives `"\n- x\n"` on disk). Corrected the trailing-case docstring, which had claimed to pin the
+"leading/trailing" contract when it pinned only the trailing side — the same overclaiming pattern the
+re-review flagged, caught here in the tests rather than the source.
+
+### `docs-writer` — README exit-code line
+
+Reworded so exit `1` is no longer presented as uniformly "file I/O error with a clean message":
+a missing or unreadable file gives the single-line stderr message, while some failures — notably a
+non-UTF-8 input file — surface as an unhandled Python error. Verified against `cli.py`'s *logic*
+(which was not changing) rather than its prose, since `cli.py` was being edited concurrently.
+
+### Orchestrator verification — done directly, not accepted from the agents
+
+- **`cli.py` change proved docstring-only** by parsing `HEAD:src/md_formatter/cli.py` and the
+  worktree copy, stripping every docstring node, `ast.unparse`ing both and diffing: **62 vs 62
+  stripped lines, 0 diff lines.** (The developer ran the same check and additionally proved its
+  harness *sensitive* by showing an `except (OSError, ValueError)` mutant yields 11 diff lines — a
+  vacuous-harness check worth copying.)
+- **`.lstrip()` mutant rebuilt independently** outside the repo, import path asserted to resolve into
+  the copy: **`1 failed, 164 passed`**, the failure being exactly the new leading-newline test.
+- **Both newly-discovered escapes reproduced** through the installed console script: stdin decode
+  and `--output` surrogate encode, each a traceback with exit 1.
+- **Final docstring and README wording read back** and checked against observed behaviour.
+
+**Local quality gate after rework 2 (orchestrator-run):**
+
+| Gate | Result |
+|---|---|
+| `ruff check .` | All checks passed |
+| `ruff format --check .` | 31 files already formatted |
+| `mypy` (strict) | Success: no issues found in 9 source files |
+| `pytest` | **165 passed**, **100%** coverage (99/99) |
+| `pytest --no-cov --doctest-modules src` | 6 passed |
+
+**2 of 3 rework iterations used.**

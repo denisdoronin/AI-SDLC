@@ -387,12 +387,15 @@ def test_main_pins_trailing_newline_contract_when_result_has_a_blank_line(
     already ends in a blank line makes that distinguishable: bullet mode on
     ``"x\\n\\n"`` formats (per :func:`format_text`'s own doctest) to
     ``"- x\\n"``, so the file written by ``main`` must hold *two* trailing
-    newlines, not one.
+    newlines, not one. This pins the **trailing** side of that contract only;
+    the mirroring leading-blank-line case is pinned separately by
+    :func:`test_main_pins_leading_newline_contract_when_result_has_a_blank_line`
+    below.
 
     Mutation guard: kills a mutant that writes
     ``f"{result.strip()}\\n"`` instead of ``f"{result}\\n"`` - the stripped
-    variant would collapse this to a single trailing newline and drop the
-    interior leading/trailing whitespace contract entirely.
+    variant would collapse the trailing blank line, writing a single
+    trailing newline instead of two.
     """
     input_file = tmp_path / "in.txt"
     input_file.write_text("x\n\n", encoding="utf-8")
@@ -404,6 +407,33 @@ def test_main_pins_trailing_newline_contract_when_result_has_a_blank_line(
 
     assert exit_code == 0
     assert output_file.read_text(encoding="utf-8") == "- x\n\n"
+
+
+def test_main_pins_leading_newline_contract_when_result_has_a_blank_line(
+    tmp_path: Path,
+) -> None:
+    """Gap-1 mutation guard, mirroring the trailing-blank-line test above:
+    ``main`` writes ``result`` exactly as given, never a left-stripped copy of
+    it. An input whose formatted result already *starts* with a blank line
+    makes that distinguishable: bullet mode on ``"\\nx\\n"`` (verified by
+    running the real CLI, not assumed) formats to ``"\\n- x"``, a result with
+    a leading blank output line, so the file written by ``main`` must hold
+    that leading blank line followed by ``"- x\\n"``.
+
+    Mutation guard: kills a mutant that writes ``f"{result.lstrip()}\\n"``
+    instead of ``f"{result}\\n"`` - the left-stripped variant would drop the
+    leading blank line, writing ``"- x\\n"`` instead of ``"\\n- x\\n"``.
+    """
+    input_file = tmp_path / "in.txt"
+    input_file.write_text("\nx\n", encoding="utf-8")
+    output_file = tmp_path / "out.md"
+
+    exit_code = main(
+        ["--mode", "bullet", "--input", str(input_file), "--output", str(output_file)]
+    )
+
+    assert exit_code == 0
+    assert output_file.read_text(encoding="utf-8") == "\n- x\n"
 
 
 def test_main_empty_result_writes_nothing_to_output_file(tmp_path: Path) -> None:

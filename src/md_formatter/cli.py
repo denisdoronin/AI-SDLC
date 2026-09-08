@@ -24,6 +24,16 @@ Known limitations:
   UTF-8 the same bytes can decode differently depending on whether they
   arrive through ``--input`` or through standard input, and likewise for
   ``--output`` and standard output.
+* Decoding on the way in and encoding on the way out are unguarded.
+  :class:`UnicodeDecodeError` and :class:`UnicodeEncodeError` escape
+  :func:`main`, so such a run ends in a traceback rather than in the one-line
+  error used for file failures; the ``Raises`` section of :func:`main` records
+  the conditions that trigger each. Decoding the contents of an ``--input``
+  file belongs to MDF-15, which covers safe file I/O and file-content
+  decoding. The remaining cases sit outside that framing and are recorded as
+  unowned rather than filed under MDF-15: the standard-input and
+  standard-output cases act on streams rather than on file contents, and the
+  ``--output`` case is an encode on write rather than a decode.
 """
 
 import argparse
@@ -188,23 +198,41 @@ def main(argv: list[str] | None = None) -> int:
     docstring; an empty result is written as nothing at all, so no file is left
     holding a lone newline.
 
+    Two kinds of failure are handled here: a usage error, which :mod:`argparse`
+    turns into :class:`SystemExit`, and an :class:`OSError` from the read or
+    the write, which is reported and turned into exit code ``1``. Anything else
+    propagates to the caller. The exceptions known to escape are listed below;
+    that list records what has been observed, not a proof of exhaustiveness.
+
     Args:
         argv: Command-line arguments without the program name. When ``None``,
             ``sys.argv[1:]`` is used.
 
     Returns:
-        ``0`` on success, or ``1`` when an input or output file cannot be read
-        or written, in which case a single-line message is printed to standard
-        error.
+        ``0`` once the formatted text has been written. ``1`` when
+        :func:`_read_input` or :func:`_write_output` raised :class:`OSError`;
+        that is the only path on which this function returns ``1``, and it is
+        the path that prints the single line ``md-formatter: error: <error>``
+        to standard error. A run can also stop with status ``1`` without this
+        function returning at all, when one of the exceptions below propagates
+        and the interpreter prints a traceback instead of that line.
 
     Raises:
         SystemExit: Propagated from :mod:`argparse` with code ``2`` for a usage
             error, which includes a missing or unknown ``--mode`` and an empty
-            ``--delimiter``, and with code ``0`` for ``--help``. Nothing else
-            escapes: the parser guarantees ``--mode`` is one of :data:`MODES`
-            and ``--delimiter`` is non-empty, which are the only two inputs
-            :func:`format_text` can raise on, and both file operations catch
-            :class:`OSError` and return ``1``.
+            ``--delimiter``, and with code ``0`` for ``--help``.
+        UnicodeDecodeError: Propagated from :func:`_read_input` and caught
+            nowhere, because it subclasses :class:`ValueError` rather than
+            :class:`OSError` and so slips past the handler around the read. It
+            is raised when the ``--input`` file does not hold valid UTF-8, and
+            when the bytes arriving on standard input do not match the encoding
+            the interpreter gave that stream.
+        UnicodeEncodeError: Propagated from :func:`_write_output` and caught
+            nowhere either, for the same reason. It is raised when the standard
+            output encoding cannot represent a character of the result, and when
+            the ``--output`` file is written from text holding surrogates, which
+            reach it from standard input read with the ``surrogateescape`` error
+            handler.
     """
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -281,6 +309,9 @@ def _read_input(path: str | None) -> str:
 
     Raises:
         OSError: If the file cannot be read.
+        UnicodeDecodeError: If the file is not valid UTF-8, or if the bytes on
+            standard input do not match that stream's encoding. Callers that
+            handle only :class:`OSError` do not intercept this.
     """
     if path is None:
         return sys.stdin.read()
@@ -297,6 +328,10 @@ def _write_output(path: str | None, payload: str) -> None:
 
     Raises:
         OSError: If the file cannot be written.
+        UnicodeEncodeError: If the standard output encoding cannot represent a
+            character of ``payload``, or if ``payload`` holds surrogates and is
+            written to a file as UTF-8. Callers that handle only
+            :class:`OSError` do not intercept this.
     """
     if path is None:
         sys.stdout.write(payload)
