@@ -796,3 +796,118 @@ non-UTF-8 input file — surface as an unhandled Python error. Verified against 
 | `pytest --no-cov --doctest-modules src` | 6 passed |
 
 **2 of 3 rework iterations used.**
+
+---
+
+## 2026-09-08 — CI re-verification on the post-rework HEAD
+
+Re-checked directly by the orchestrator after rework 2, rather than assuming the earlier green run
+still applied — this is exactly the `MDF-16.md` failure mode (CI reported green, follow-up commit
+never re-verified), and it would have been easy to repeat here since the PR had already been
+verified green once.
+
+| headSha | Workflow | Conclusion | Status |
+|---|---|---|---|
+| `fa31468` | CI / Claude Code Review | success | superseded (pre-review-round-1) |
+| `8f90166` | CI / Claude Code Review | success | superseded (pre-review-round-2) |
+| **`6bbe604`** (CI run `34245937225`) | CI | **success** | **AUTHORITATIVE** |
+| **`6bbe604`** | Claude Code Review | **success** | **AUTHORITATIVE** |
+
+SHA cross-check: local `git rev-parse HEAD`, `gh pr view 8 --json headRefOid` and the run `headSha`
+are all `6bbe6048caab87eddcb44423fdf8baaec965692d`. PR `OPEN`, `MERGEABLE`, `mergeStateStatus:
+CLEAN`.
+
+**Numbers pulled from the Linux CI log itself, not inferred from a green tick:** `All checks
+passed!` / `31 files already formatted` / `Success: no issues found in 9 source files` /
+**`165 passed`** / `Total coverage: 100.00%` / doctests **`6 passed`**. Exact parity with the Windows
+local gate — same test count, same coverage, same doctest count.
+
+---
+
+## 2026-09-08 — Final state
+
+**MDF-14 complete and ready for human review. Not merged, not approved — humans own both.**
+
+- **PR #8:** https://github.com/denisdoronin/AI-SDLC/pull/8 — `OPEN`, `MERGEABLE`, CI green on HEAD.
+- Commits: `bc719e3` (log), `fa31468` (feat), `626172f` (review round 1 fixes), `8f90166` (README
+  and log), `6bbe604` (review round 2 fixes).
+- Product diff: `src/md_formatter/cli.py` (new), `src/md_formatter/__main__.py` (new),
+  `pyproject.toml` (`[project.scripts]`), `tests/test_cli.py` (new, 56 tests), `README.md` (Usage).
+- Final gate: ruff clean, ruff format clean, mypy strict clean, **165 tests passed**, **100%**
+  coverage, 6 doctests — confirmed identically on the Linux CI runner.
+- **2 of 3 rework iterations used. Zero questions escalated to the human.**
+
+### All three acceptance criteria met, verified by the orchestrator executing the built command
+
+1. `md-formatter --help` lists all four flags, all three mode choices and per-flag description text;
+   the console script is genuinely installed and `python -m md_formatter` prints identical help.
+2. Input read from a file path and from stdin, in all three modes.
+3. Output written to a file path and to stdout; all four source-by-sink combinations tested.
+
+Also satisfies PRD **FR-3.1** and **FR-3.2** in full, and **FR-3.3** for the `OSError` family.
+
+### Process notes worth carrying forward
+
+1. **Calling `requirements-analyst` even though the human supplied the ticket body and authorised
+   skipping it was the highest-leverage decision of the run.** The pasted ticket was verbatim and
+   complete — but Confluence held **FR-3.1/3.2/3.3**, a normative `cli.py` naming rule, and a
+   normative separation-of-concerns rule, none of which appear in the ticket. A pasted ticket body
+   cannot surface a governing FR. The verification-scoped call cost one read-only agent.
+2. **A sibling-ticket check resolved a scope question that reasoning alone could not.** The analyst
+   flagged FR-3.3 as possibly out of scope; enumerating the children of Epic MDF-5 found **MDF-15**,
+   which owns FR-3.3 almost verbatim. The decisive evidence for keeping the handling anyway was
+   *experimental* — running the CLI showed MDF-15 retained real work — not argumentative.
+3. **The review found the same class of defect twice, and the second instance was created by the fix
+   for the first.** Round 1: an incomplete `Raises:`. Round 2: the fix replaced it with an
+   affirmative "Nothing else escapes" that was false. **A universal claim is far more expensive to
+   get wrong than an incomplete one**, so it must be falsified by execution before being written.
+   Adding an explicit "try to falsify this before writing it" instruction to the round-2 brief then
+   found **two escapes the reviewer itself had missed** — the strongest evidence in this run that
+   falsification beats review as a way to catch false documentation.
+4. **100% line coverage remained a poor proxy for pinned behaviour, for the third ticket running.**
+   Both round-1 blocking test gaps sat at 100% coverage. What found them was asking which structural
+   dimension of the input the suite never varies — and note that the *first* structural analysis
+   still missed the `.lstrip()` case, because it varied the trailing side but not the leading one.
+5. **A silently-failed mutation nearly produced a false "mutant survived" conclusion.** A heredoc
+   consumed backslash escapes before Python received them, so the search string held a real newline
+   and never matched; the run reported `164 passed`, which reads exactly like a survivor. Only the
+   standing rule to **assert the edit applied** caught it. Use `chr(92)` for backslashes and re-read
+   the file from disk before trusting a mutation run.
+6. **A vacuous-harness check is worth running on the verification itself.** The `developer` proved
+   its docstring-only AST diff was *sensitive* by showing a real logic mutant produced 11 diff lines.
+   A harness that reports "no difference" is worthless until shown capable of reporting one.
+7. Cheap and repeatedly valuable: having the orchestrator **re-run every gate and reproduce every
+   blocking mutant itself** rather than accept subagent self-reports. It caught the empty-delimiter
+   traceback before the review did, and independently confirmed all three blocking mutant kills.
+8. `gh pr review --request-changes` remains impossible in this repo (PR author == authenticated
+   account), so AI review verdicts can only ever be PR *comments*. Confirmed again across two rounds.
+9. The `claude-review` GitHub workflow is configured for **inline comments only**, so a green tick
+   from it does not mean a reviewer confirmed anything in prose. The `release-manager` spotted this,
+   and it is why a second review round was commissioned rather than closing on CI numbers alone.
+
+### Open items for the human (none blocking this PR)
+
+1. **Decide the MDF-14 / MDF-15 error-handling boundary.** MDF-14 currently owns argument-domain
+   errors plus the `OSError` family; MDF-15 owns file-content and decoding failures. Reverting to the
+   strict reading is one small commit — delete `_fail` and the two `try/except` blocks.
+2. **Three unowned edges surfaced by this run.** They fit neither ticket wording as written and need
+   assigning: `UnicodeDecodeError` on **standard input**, `UnicodeEncodeError` on **stdout**, and
+   `UnicodeEncodeError` on the **`--output` file write** with surrogate input. Only the `--input`
+   file decode case is clearly MDF-15 territory. All four are documented in `cli.py`.
+3. **PR size** is over the 400-line guidance in the `github-workflow` skill. Judged not meaningfully
+   splittable, since all three AC depend on the same entry point existing. Recorded for a human to
+   overrule.
+4. A UTF-8 **BOM** is not stripped and survives into the first list item or table cell. Reading as
+   `utf-8-sig` would fix it. Needs a ticket if wanted.
+5. Explicit UTF-8 covers **files only**; the standard streams keep the encoding the interpreter gave
+   them, so piping non-ASCII through a cp1252 console can still mangle characters.
+6. `--delimiter` is validated only for emptiness, and `allow_abbrev` remains on, so `--mod` and
+   `--in` are accepted. Both are stock argparse behaviour, required by no AC.
+7. At the `main()` layer, `"numbered"` mode is exercised for real content with only one input shape.
+   Non-blocking — numbered mode is thoroughly varied at the `format_text` layer and its dispatch
+   mutant is killed — but it is the one structural gap the suite still has.
+8. Carried over, still unaddressed from MDF-12/13/16: `README.md` has no testing section, and
+   `--cov-fail-under=90` makes a partial local `pytest` invocation fail even when all selected tests
+   pass.
+9. Confluence Development Guidelines section 2.3 still names `table_engine.py` illustratively,
+   contradicting the `tables.py` named normatively in section 1.
