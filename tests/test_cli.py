@@ -36,12 +36,12 @@ from md_formatter.cli import MODES, build_parser, format_text, main
 
 def test_format_text_bullet_mode_joins_multiple_lines_with_newline() -> None:
     """Happy path, bullet mode, 3 lines (never just 2 - see mutation notes at
-    the bottom of this file). Also a mutation guard: a mutant that joins with
-    ``""`` instead of ``"\\n"`` would collapse the three bullets onto one line.
+    the bottom of this file). A mutant that joins with ``""`` instead of
+    ``"\\n"`` would collapse the three bullets onto one line, which the exact
+    equality below already catches.
     """
     result = format_text("first\nsecond\nthird", "bullet")
     assert result == "- first\n- second\n- third"
-    assert result.count("\n") == 2
 
 
 def test_format_text_numbered_mode_joins_and_increments() -> None:
@@ -197,6 +197,26 @@ def test_build_parser_help_text_lists_all_flags_and_mode_choices() -> None:
         assert mode in help_text
 
 
+def test_build_parser_help_text_describes_each_flag_correctly() -> None:
+    """AC 1 (S3): ``--help`` must display the flags' *options* (their help
+    text), not merely their names. Whitespace is collapsed before matching so
+    the assertion does not depend on argparse's terminal-width-sensitive line
+    wrapping.
+
+    Mutation guard: kills a mutant that swaps the ``--input``/``--output``
+    help strings (both would still be *present* in the text, just attached to
+    the wrong flag, which a mere ``"... in help_text"`` check cannot catch)
+    and a mutant that drops the ``(default: ',')`` note from ``--delimiter``.
+    """
+    normalized = " ".join(build_parser().format_help().split())
+    assert "--input INPUT path to the input file; standard input is read" in normalized
+    assert (
+        "--output OUTPUT path to the output file; standard output is written"
+        in normalized
+    )
+    assert "cell separator, used by 'table' mode only (default: ',')" in normalized
+
+
 def test_main_help_flag_exits_zero_and_prints_flags_to_stdout(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -344,7 +364,8 @@ def test_main_output_file_has_exactly_one_trailing_newline(tmp_path: Path) -> No
     ``"\\n"``-on-disk-as-``"\\r\\n"`` translation on Windows.
 
     Mutation guard: kills a mutant that writes bare ``result`` without the
-    appended newline.
+    appended newline. The exact-equality assertion below already pins the
+    count of trailing newlines, so no separate ``endswith`` checks are needed.
     """
     input_file = tmp_path / "in.txt"
     input_file.write_text("only\n", encoding="utf-8")
@@ -355,10 +376,34 @@ def test_main_output_file_has_exactly_one_trailing_newline(tmp_path: Path) -> No
     )
 
     assert exit_code == 0
-    content = output_file.read_text(encoding="utf-8")
-    assert content == "- only\n"
-    assert content.endswith("\n")
-    assert not content.endswith("\n\n")
+    assert output_file.read_text(encoding="utf-8") == "- only\n"
+
+
+def test_main_pins_trailing_newline_contract_when_result_has_a_blank_line(
+    tmp_path: Path,
+) -> None:
+    """B5 mutation guard: ``main`` appends exactly one ``"\\n"`` to ``result``
+    as given, never a stripped copy of it. An input whose formatted result
+    already ends in a blank line makes that distinguishable: bullet mode on
+    ``"x\\n\\n"`` formats (per :func:`format_text`'s own doctest) to
+    ``"- x\\n"``, so the file written by ``main`` must hold *two* trailing
+    newlines, not one.
+
+    Mutation guard: kills a mutant that writes
+    ``f"{result.strip()}\\n"`` instead of ``f"{result}\\n"`` - the stripped
+    variant would collapse this to a single trailing newline and drop the
+    interior leading/trailing whitespace contract entirely.
+    """
+    input_file = tmp_path / "in.txt"
+    input_file.write_text("x\n\n", encoding="utf-8")
+    output_file = tmp_path / "out.md"
+
+    exit_code = main(
+        ["--mode", "bullet", "--input", str(input_file), "--output", str(output_file)]
+    )
+
+    assert exit_code == 0
+    assert output_file.read_text(encoding="utf-8") == "- x\n\n"
 
 
 def test_main_empty_result_writes_nothing_to_output_file(tmp_path: Path) -> None:
@@ -395,23 +440,44 @@ def test_main_empty_result_prints_nothing_to_stdout(
     assert capsys.readouterr().out == ""
 
 
-def test_main_round_trips_non_ascii_content_through_real_file_io(
+def test_main_table_mode_non_ascii_column_width_pins_utf8_decoding(
     tmp_path: Path,
 ) -> None:
-    """Functional proxy for the "UTF-8 explicit, every platform" contract:
-    real file I/O (not mocked) round-trips Cyrillic and emoji content
-    unchanged through both the read and the write side.
+    """B4: kills a mutant that reads/writes files as ``"latin-1"`` instead of
+    ``"utf-8"``.
+
+    A byte-symmetric round trip (write UTF-8, misread as latin-1, write the
+    resulting mojibake back as latin-1) reproduces the original bytes exactly
+    whenever the transformation only prefixes or numbers each line, which is
+    why a bullet-mode round-trip test cannot detect the wrong codec: encoding
+    the mojibake back with the same wrong codec regenerates the original UTF-8
+    bytes. Table mode breaks that symmetry because column width is computed
+    with :func:`len` on the *decoded* string: the two UTF-8 bytes of ``"é"``
+    decode to one character under UTF-8 but to two mojibake characters
+    (``"Ã"`` + ``"©"``) under latin-1, so a latin-1 misread widens the ``café``
+    column by one character. That extra width changes the number of dashes in
+    the separator row and the padding of every other cell in that column, an
+    asymmetry the byte-symmetric round trip cannot hide.
+
+    Verified by building the mutant: swapping ``encoding="utf-8"`` for
+    ``encoding="latin-1"`` at both I/O sites in ``cli.py`` turns the expected
+    ``"| café | age |\\n| ---- | --- |\\n| b    | 5   |\\n"`` into
+    ``"| café | age |\\n| ----- | --- |\\n| b     | 5   |\\n"`` (five dashes
+    and an extra padding space instead of four), so this assertion fails
+    under that mutant.
     """
     input_file = tmp_path / "in.txt"
-    input_file.write_text("Привет\n😀\n", encoding="utf-8")
+    input_file.write_text("café,age\nb,5\n", encoding="utf-8")
     output_file = tmp_path / "out.md"
 
     exit_code = main(
-        ["--mode", "bullet", "--input", str(input_file), "--output", str(output_file)]
+        ["--mode", "table", "--input", str(input_file), "--output", str(output_file)]
     )
 
     assert exit_code == 0
-    assert output_file.read_text(encoding="utf-8") == "- Привет\n- 😀\n"
+    assert output_file.read_text(encoding="utf-8") == (
+        "| café | age |\n| ---- | --- |\n| b    | 5   |\n"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +516,72 @@ def test_main_delimiter_flag_overrides_default(
     assert capsys.readouterr().out == ("| a   | b   |\n| --- | --- |\n| c   | d   |\n")
 
 
+def test_main_multi_character_delimiter_is_still_accepted(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``_non_empty_delimiter`` only rejects the empty string, so a
+    multi-character delimiter such as ``"||"`` remains legal end to end
+    through ``main`` (and is matched literally, per
+    :func:`~md_formatter.tables.parse_delimiter_text`).
+    """
+    input_file = tmp_path / "in.txt"
+    input_file.write_text("a||b\nc||d\n", encoding="utf-8")
+
+    exit_code = main(
+        ["--mode", "table", "--input", str(input_file), "--delimiter", "||"]
+    )
+
+    assert exit_code == 0
+    assert capsys.readouterr().out == ("| a   | b   |\n| --- | --- |\n| c   | d   |\n")
+
+
+def test_main_table_mode_through_the_real_cli_renders_multiple_body_rows(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """S6: at the ``main()`` layer (not just via ``format_text`` directly),
+    a table with more than one body row is rendered in full, header through
+    every row, per the MDF-13 lesson that an always-one-body-row suite lets
+    row-count/order mutants survive.
+    """
+    input_file = tmp_path / "in.txt"
+    input_file.write_text("Name,Age\nAlice,30\nBob,25\nCarol,40\n", encoding="utf-8")
+
+    exit_code = main(["--mode", "table", "--input", str(input_file)])
+
+    assert exit_code == 0
+    assert capsys.readouterr().out == (
+        "| Name  | Age |\n"
+        "| ----- | --- |\n"
+        "| Alice | 30  |\n"
+        "| Bob   | 25  |\n"
+        "| Carol | 40  |\n"
+    )
+
+
+def test_main_output_file_truncates_pre_existing_content_instead_of_appending(
+    tmp_path: Path,
+) -> None:
+    """S8: ``--output`` at a pre-existing non-empty file truncates it rather
+    than appending, per the ``_write_output`` docstring's "truncating it"
+    contract.
+
+    Mutation guard: kills a mutant that opens the output file in append mode
+    - the leftover ``"OLD CONTENT THAT MUST BE GONE"`` would still be present
+    (before or after the new result) if the file were not truncated first.
+    """
+    input_file = tmp_path / "in.txt"
+    input_file.write_text("first\nsecond\n", encoding="utf-8")
+    output_file = tmp_path / "out.md"
+    output_file.write_text("OLD CONTENT THAT MUST BE GONE\n" * 5, encoding="utf-8")
+
+    exit_code = main(
+        ["--mode", "bullet", "--input", str(input_file), "--output", str(output_file)]
+    )
+
+    assert exit_code == 0
+    assert output_file.read_text(encoding="utf-8") == "- first\n- second\n"
+
+
 def test_main_uses_sys_argv_when_argv_is_none(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -463,6 +595,42 @@ def test_main_uses_sys_argv_when_argv_is_none(
 
     assert exit_code == 0
     assert capsys.readouterr().out == "- only\n"
+
+
+# ---------------------------------------------------------------------------
+# main: --delimiter validation (_non_empty_delimiter, usage error)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("mode", ["bullet", "numbered", "table"])
+def test_main_empty_delimiter_is_a_usage_error_in_every_mode(
+    mode: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An empty ``--delimiter`` is rejected by argparse itself (via the
+    ``type=_non_empty_delimiter`` callable) before ``format_text`` ever runs,
+    in *every* mode, even the two list modes that would have ignored the
+    delimiter anyway: an invalid flag value is a usage error regardless of
+    whether the run would have consulted it.
+
+    Pins the exact contract: ``SystemExit`` code ``2``, and the last line of
+    stderr is exactly ``"md-formatter: error: argument --delimiter: value
+    must not be empty"`` with no traceback (argparse prints a usage block
+    before that line, which is why the assertion targets the last line
+    rather than the whole of stderr).
+
+    Mutation guard: kills a mutant that makes ``_non_empty_delimiter`` accept
+    the empty string (return it unchanged instead of raising), which would
+    make this whole test raise nothing and fail at ``pytest.raises``.
+    """
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--mode", mode, "--delimiter", ""])
+
+    assert exc_info.value.code == 2
+    err_lines = capsys.readouterr().err.splitlines()
+    assert "Traceback" not in "\n".join(err_lines)
+    assert err_lines[-1] == (
+        "md-formatter: error: argument --delimiter: value must not be empty"
+    )
 
 
 # ---------------------------------------------------------------------------
